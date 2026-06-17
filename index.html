@@ -969,6 +969,7 @@ async function geocode(q){
 }
 
 function setLocation(lat,lon){
+  console.log('setLocation called with:', lat, lon, typeof lat, typeof lon);
   document.getElementById('lat-slider').value=lat;
   document.getElementById('lon-slider').value=lon;
   document.getElementById('lat-display').textContent=lat.toFixed(2)+'°';
@@ -1426,9 +1427,11 @@ function runAll(){
   }
   lastDayData=dayData;
   const midRes=dayData[12];
-  document.getElementById('s-sunrise').textContent=frHrToHms(midRes.sunrise);
-  document.getElementById('s-sunset').textContent=frHrToHms(midRes.sunset);
-  document.getElementById('s-noon').textContent=frHrToHms(midRes.suntransit);
+  const isPolarDay = midRes.sunrise <= -99990 && midRes.altitude > 0;
+  const isPolarNight = midRes.sunrise <= -99990 && midRes.altitude <= 0
+  document.getElementById('s-sunrise').textContent = isPolarDay ? 'Polar day' : isPolarNight ? 'Polar night' : frHrToHms(midRes.sunrise);
+  document.getElementById('s-sunset').textContent = isPolarDay ? 'Polar day' : isPolarNight ? 'Polar night' : frHrToHms(midRes.sunset);
+  document.getElementById('s-noon').textContent = isPolarDay ? frHrToHms(midRes.suntransit) : isPolarNight ? '—' : frHrToHms(midRes.suntransit)
 
   resizeChart();
   updateCurrentPosition();
