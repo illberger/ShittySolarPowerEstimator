@@ -471,7 +471,7 @@
       </div>
       <div class="row2">
         <div class="field">
-          <label>Latitude <span id="lat-display">57.71°</span></label>
+          <label> <span id="lat-display">57.71°</span></label>
           <input type="range" id="lat-slider" min="-90" max="90" step="0.01" value="57.71">
         </div>
         <div class="field">
@@ -1145,17 +1145,22 @@ function bindSlider(id, key, display, fmt, init=true) {
 }
 
 function initSliders() {
-  bindSlider('pcount-slider', 'pcount', 'pcount-display', v => v.toFixed(0));
-  bindSlider('eff-slider', 'eff', 'eff-display', v => (v * 100).toFixed(0) + '%');
+  bindSlider('lat-slider', 'lat', 'lat-display', v => v.toFixed(2) + '°');
+  bindSlider('lon-slider', 'lon', 'lon-display', v => v.toFixed(2) + '°');
+  bindSlider('elev-slider', 'elev', 'elev-display', v => v.toFixed(0) + ' m');
+
+  bindSlider('dt-slider', 'deltaT', 'dt-display', v => v.toFixed(0) + ' s');
   bindSlider('slope-slider', 'slope', 'slope-display', v => v.toFixed(0) + '°');
   bindSlider('panazm-slider', 'panAzm', 'panazm-display', v => v.toFixed(0) + '°');
-
-  bindSlider('pnom-slider', 'pnom', 'pnom-display', v => v.toFixed(0));
+  bindSlider('pcount-slider', 'pcount', 'pcount-display', v => v.toFixed(0));
+  bindSlider('eff-slider', 'eff', 'eff-display', v => (v * 100).toFixed(0) + '%');
+  
+  bindSlider('pnom-slider', 'pnom', 'pnom-display', v => v.toFixed(0) + ' W');
   bindSlider('area-slider', 'panelArea', 'area-display', v => v.toFixed(1) + ' m²');
 
   bindSlider('area-slider2', 'panelArea', 'area-display2', v => v.toFixed(1) + ' m²');
   bindSlider('mod-eff-slider', 'modEff', 'mod-eff-display', v => (v * 100).toFixed(0) + '%');
-  bindSlider('pnom-slider2', 'pnom', 'pnom-display2', v => v.toFixed(0));
+  bindSlider('pnom-slider2', 'pnom', 'pnom-display2', v => v.toFixed(0) + ' W');
 }
 
 
