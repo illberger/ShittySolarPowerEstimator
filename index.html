@@ -3,6 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta http-equiv="Content-Security-Policy" 
+      content="default-src 'self'; 
+               script-src 'unsafe-inline' https://cdnjs.cloudflare.com; 
+               style-src 'unsafe-inline'; 
+               img-src data:; 
+               connect-src https://nominatim.openstreetmap.org https://raw.githubusercontent.com/nvkelso/natural-earth-vector/;">
 <title>Shitty Solar Power Estimator</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -636,9 +645,9 @@
     <div>
       <div class="section-label">Chart View</div>
       <div class="tab-row">
-        <button class="tab-btn active" id="tab-zenith">Zenith</button>
+        <button class="tab-btn" id="tab-zenith">Zenith</button>
         <button class="tab-btn" id="tab-altitude">Altitude</button>
-        <button class="tab-btn" id="tab-power">Power</button>
+        <button class="tab-btn active" id="tab-power">Power</button>
         <button class="tab-btn" id="tab-azimuth">Azimuth</button>
       </div>
     </div>
@@ -907,6 +916,15 @@ function orientationFactor(sunAzimuth,roofAzimuth,sunZenith,panelSlope){
 }
 // #endregion
 
+/**
+ * input helper
+ */
+function sanitize(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 // #region geocode
 function initGeocoder() {
   let searchTimeout = null;
@@ -926,30 +944,66 @@ function initGeocoder() {
 
   async function geocode(q) {
     try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5`);
+      const sanitizedQ = q.replace(/[^a-zA-Z0-9\s,.'-]/g, '');
+      if (sanitizedQ.length < 3) return;
+
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(sanitizedQ)}&limit=3`);
+      if (!r.ok) throw new Error(r.status);
+
       const data = await r.json();
       locResults.innerHTML = '';
+
       if (!data.length) {
-        locResults.innerHTML = '<div class="location-result-item"><span class="name">No results</span></div>';
+        const noResults = document.createElement('div');
+        noResults.className = 'location-result-item';
+        noResults.textContent = 'No results';
+        locResults.appendChild(noResults);
         locResults.classList.add('open');
         return;
       }
+
       data.forEach(item => {
         const d = document.createElement('div');
         d.className = 'location-result-item';
-        d.innerHTML = `<div class="name">${item.display_name.split(',').slice(0,2).join(',')}</div>
-                       <div class="coords">${parseFloat(item.lat).toFixed(4)}°, ${parseFloat(item.lon).toFixed(4)}°</div>`;
+    
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'name';
+        const locationName = item.display_name.split(',').slice(0, 2).join(',');
+        nameSpan.textContent = locationName;
+   
+        const coordsSpan = document.createElement('span');
+        coordsSpan.className = 'coords';
+        
+        const lmao = " "
+        const lat = parseFloat(item.lat);
+        const lon = parseFloat(item.lon);
+   
+        if (isNaN(lat) || isNaN(lon)) return;
+        
+        coordsSpan.textContent = `${lmao}, ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+        
+        d.appendChild(nameSpan);
+        d.appendChild(coordsSpan);
+        
         d.addEventListener('click', () => {
-          setLocation(parseFloat(item.lat), parseFloat(item.lon));
-          locSearch.value = item.display_name.split(',').slice(0, 2).join(',');
+          setLocation(lat, lon);
+          locSearch.value = locationName;
           locResults.classList.remove('open');
           runAll();
         });
+        
         locResults.appendChild(d);
       });
+
       locResults.classList.add('open');
     } catch(e) {
       console.warn('Geocode failed:', e);
+      locResults.innerHTML = '';
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'location-result-item';
+      errorDiv.textContent = 'Search failed. Please try again.';
+      locResults.appendChild(errorDiv);
+      locResults.classList.add('open');
     }
   }
 }
