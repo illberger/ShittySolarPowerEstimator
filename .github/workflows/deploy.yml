@@ -3,17 +3,7 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: ["main"]
-    # Only deploy when these files change
-    paths:
-      - "index.html"
-      - "*.html"
-      - "*.css"
-      - "*.js"
-      - "assets/**"
-      - "docs/**"
-      - "CNAME"
-      - ".nojekyll"
-    # Ignore these files
+    # Don't deploy when these files change
     paths-ignore:
       - "README.md"
       - "*.md"
