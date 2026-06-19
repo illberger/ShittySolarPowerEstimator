@@ -1756,6 +1756,7 @@ function runAll(){
   document.getElementById('s-sunset').textContent = isPolarDay ? 'Polar day' : isPolarNight ? 'Polar night' : frHrToHms(midRes.sunset);
   document.getElementById('s-noon').textContent = isPolarDay ? frHrToHms(midRes.suntransit) : isPolarNight ? '—' : frHrToHms(midRes.suntransit)
 
+  updatePill();
   resizeChart();
   updateObsPosition();
 }
@@ -1875,7 +1876,6 @@ function initShittyApp() {
   initPowerModeToggle();
   initSliders();
   populateTimezoneSelect();
-  updatePill(); // Should be private accessible frm runAll()
   runAll();
   resizeChart();
 }
