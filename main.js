@@ -1,6 +1,11 @@
 import { spa, d2r, r2d } from './spa.js';
 
 
+let earthGroup;
+let marker, ring, arrowHelper, sunSphere, sunMat, corona, coronaMat;
+let sunLight, sunGlow;
+let renderer, scene, camera;
+
 /** 
  * Function used to simplify irradiance estimation 
 */
