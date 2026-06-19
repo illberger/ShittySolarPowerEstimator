@@ -1,0 +1,977 @@
+import { spa, d2r, r2d } from './spa.js';
+
+
+/** 
+ * Function used to simplify irradiance estimation 
+*/
+function orientationFactor(sunAzimuth,roofAzimuth,sunZenith,panelSlope){
+  if(sunZenith>90)return 0;
+  const zr=d2r(sunZenith),sr=d2r(panelSlope),ar=d2r(sunAzimuth-roofAzimuth);
+  const ct=Math.cos(zr)*Math.cos(sr)+Math.sin(zr)*Math.sin(sr)*Math.cos(ar);
+  return ct>0?ct:0;
+}
+
+/**
+ * input helper
+ */
+function sanitize(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// #region geocode
+function initGeocoder() {
+  let searchTimeout = null;
+  const locSearch = document.getElementById('location-search');
+  const locResults = document.getElementById('location-results');
+
+  locSearch.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    const q = locSearch.value.trim();
+    if (q.length < 3) { locResults.classList.remove('open'); return; }
+    searchTimeout = setTimeout(() => geocode(q), 400);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.location-search')) locResults.classList.remove('open');
+  });
+
+  async function geocode(q) {
+    try {
+      const sanitizedQ = q.replace(/[^a-zA-Z0-9\s,.'-]/g, '');
+      if (sanitizedQ.length < 3) return;
+
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(sanitizedQ)}&limit=3`);
+      if (!r.ok) throw new Error(r.status);
+
+      const data = await r.json();
+      locResults.innerHTML = '';
+
+      if (!data.length) {
+        const noResults = document.createElement('div');
+        noResults.className = 'location-result-item';
+        noResults.textContent = 'No results';
+        locResults.appendChild(noResults);
+        locResults.classList.add('open');
+        return;
+      }
+
+      data.forEach(item => {
+        const d = document.createElement('div');
+        d.className = 'location-result-item';
+    
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'name';
+        const locationName = item.display_name.split(',').slice(0, 2).join(',');
+        nameSpan.textContent = locationName;
+   
+        const coordsSpan = document.createElement('span');
+        coordsSpan.className = 'coords';
+        
+        const lmao = " "
+        const lat = parseFloat(item.lat);
+        const lon = parseFloat(item.lon);
+   
+        if (isNaN(lat) || isNaN(lon)) return;
+        
+        coordsSpan.textContent = `${lmao}, ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+        
+        d.appendChild(nameSpan);
+        d.appendChild(coordsSpan);
+        
+        d.addEventListener('click', () => {
+          setLocation(lat, lon);
+          locSearch.value = locationName;
+          locResults.classList.remove('open');
+          runAll();
+        });
+        
+        locResults.appendChild(d);
+      });
+
+      locResults.classList.add('open');
+    } catch(e) {
+      console.warn('Geocode failed:', e);
+      locResults.innerHTML = '';
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'location-result-item';
+      errorDiv.textContent = 'Search failed. Please try again.';
+      locResults.appendChild(errorDiv);
+      locResults.classList.add('open');
+    }
+  }
+}
+function setLocation(lat, lon) {
+  document.getElementById('lat-slider').value = lat;
+  document.getElementById('lon-slider').value = lon;
+  document.getElementById('lat-display').textContent = lat.toFixed(2) + '°';
+  document.getElementById('lon-display').textContent = lon.toFixed(2) + '°';
+  state.lat = lat;
+  state.lon = lon;
+}
+// #endregion
+
+// #region 3D Scene
+
+/*
+function initRenderer() {
+  const container = document.getElementById('globe-container');
+  const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  renderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(renderer.domElement);
+  return {renderer, container};
+}
+
+function initScene() {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  camera.position.set(0, 0, 3);
+  return {scene, camera};
+}
+
+function initEarth(scene) {
+  const earthGroup = new THREE.Group();
+  scene.add(earthGroup);
+  const texCanvas = document.createElement('canvas');
+  texCanvas.width = 1024; texCanvas.height = 512;
+  const tc = texCanvas.getContext('2d');
+  tc.fillStyle = '#0d2b4e';
+  tc.fillRect(0, 0, 1024, 512);
+  tc.strokeStyle = 'rgba(100,150,255,0.08)';
+  tc.lineWidth = 1;
+  for(let i=0;i<12;i++){const x=i/12*1024;tc.beginPath();tc.moveTo(x,0);tc.lineTo(x,512);tc.stroke();}
+  for(let i=0;i<6;i++){const y=i/6*512;tc.beginPath();tc.moveTo(0,y);tc.lineTo(1024,y);tc.stroke();}
+
+  const globeMat = new THREE.MeshPhongMaterial({
+    map: new THREE.CanvasTexture(texCanvas),
+    shininess: 15,
+    specular: new THREE.Color(0x112244)
+  });
+  const globe = new THREE.Mesh(new THREE.SphereGeometry(1,64,64), globeMat);
+  earthGroup.add(globe);
+  const atmMat = new THREE.MeshPhongMaterial({color:0x3366ff,transparent:true,opacity:0.06,side:THREE.FrontSide});
+  earthGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1.03,32,32), atmMat));
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.025,12,12),
+    new THREE.MeshBasicMaterial({color:0xff4444})
+  );
+  earthGroup.add(marker);
+
+
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.04,0.006,8,32),
+    new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:0.7})
+  );
+  earthGroup.add(ring);
+  const arrowHelper = new THREE.ArrowHelper(
+    new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0),
+    0.4, 0x6c8fff, 0.08, 0.06
+  );
+  earthGroup.add(arrowHelper);
+
+  return {earthGroup, globe, marker, ring, arrowHelper};
+}
+
+function initLights(scene) {
+  scene.add(new THREE.AmbientLight(0x334466, 1));
+  const sunLight = new THREE.DirectionalLight(0xffffff, 1.4);
+  const sunGlow = new THREE.DirectionalLight(0xffdd88, 0.3);
+  scene.add(sunLight);
+  scene.add(sunGlow);
+  return {sunLight, sunGlow};
+}
+
+function initSun(scene) {
+  const sunMat = new THREE.MeshBasicMaterial({color:0xffdd44});
+  const sunSphere = new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16), sunMat);
+  const coronaMat = new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.4});
+  const corona = new THREE.Mesh(new THREE.TorusGeometry(0.14,0.02,8,32), coronaMat);
+  scene.add(sunSphere);
+  scene.add(corona);
+  return {sunSphere, sunMat, corona, coronaMat};
+}
+*/
+
+async function loadCountries() {
+  try {
+    const r = await fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson');
+    const geo = await r.json();
+    const mat = new THREE.LineBasicMaterial({color:0x4488aa,transparent:false,opacity:0.3});
+    geo.features.forEach(feature=>{
+      const geom=feature.geometry;
+      const polys=geom.type==='Polygon'?[geom.coordinates]:geom.coordinates;
+      polys.forEach(poly=>{
+        poly.forEach(ring=>{
+          const points=ring.map(([lon,lat])=>latLonToVec3(lat,lon,1.002));
+          earthGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),mat));
+        });
+      });
+    });
+  } catch(e) {
+    console.warn('Failed to load country borders:', e);
+  }
+}
+
+/*
+function initGlobeDrag(renderer) {
+  renderer.domElement.addEventListener('mousedown', e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};});
+  renderer.domElement.addEventListener('mousemove', e=>{
+    if(!isDragging) return;
+    rotY += (e.clientX-prevMouse.x)*0.005;
+    rotX += (e.clientY-prevMouse.y)*0.005;
+    rotX = Math.max(-PI/2, Math.min(PI/2, rotX));
+    prevMouse = {x:e.clientX, y:e.clientY};
+  });
+  renderer.domElement.addEventListener('mouseup', ()=>isDragging=false);
+  renderer.domElement.addEventListener('mouseleave', ()=>isDragging=false);
+  renderer.domElement.addEventListener('touchstart', e=>{isDragging=true;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};},{passive:true});
+  renderer.domElement.addEventListener('touchmove', e=>{
+    if(!isDragging) return;
+    rotY += (e.touches[0].clientX-prevMouse.x)*0.005;
+    rotX += (e.touches[0].clientY-prevMouse.y)*0.005;
+    rotX = Math.max(-PI/2, Math.min(PI/2, rotX));
+    prevMouse = {x:e.touches[0].clientX, y:e.touches[0].clientY};
+  },{passive:true});
+  renderer.domElement.addEventListener('touchend', ()=>isDragging=false);
+}
+
+function initResizeHandler(container, renderer, camera) {
+  const resize = () => {
+    const w=container.clientWidth, h=container.clientHeight;
+    renderer.setSize(w,h);
+    camera.aspect=w/h;
+    camera.updateProjectionMatrix();
+  };
+  resize();
+  window.addEventListener('resize', resize);
+}
+
+function startRenderLoop(renderer, scene, camera, earthGroup) {
+  function animate() {
+    requestAnimationFrame(animate);
+    if(!isDragging) rotY += 0.001;
+    earthGroup.rotation.set(rotX, rotY, 0);
+    renderer.render(scene, camera);
+  }
+  animate();
+}
+*/
+
+/**
+ * 3D helper
+ */
+function latLonToVec3(lat, lon, r=1.02) {
+  const phi = d2r(90-lat);
+  const theta = d2r(lon+180);
+  return new THREE.Vector3(
+    -r*Math.sin(phi)*Math.cos(theta),
+    r*Math.cos(phi),
+    r*Math.sin(phi)*Math.sin(theta)
+  );
+}
+
+/**
+ * Main 3D entry point
+ */
+function initGlobe() {
+  const container = document.getElementById('globe-container');
+  const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  renderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  camera.position.set(0, 0, 3);
+
+  earthGroup = new THREE.Group();
+  scene.add(earthGroup);
+  const texCanvas = document.createElement('canvas');
+  texCanvas.width=1024; texCanvas.height=512;
+  const tc = texCanvas.getContext('2d');
+  tc.fillStyle='#0d2b4e';
+  tc.fillRect(0,0,1024,512);
+  tc.strokeStyle='rgba(100,150,255,0.08)';
+  tc.lineWidth=1;
+  for(let i=0;i<12;i++){const x=i/12*1024;tc.beginPath();tc.moveTo(x,0);tc.lineTo(x,512);tc.stroke();}
+  for(let i=0;i<6;i++){const y=i/6*512;tc.beginPath();tc.moveTo(0,y);tc.lineTo(1024,y);tc.stroke();}
+
+  const globe = new THREE.Mesh(
+    new THREE.SphereGeometry(1,64,64),
+    new THREE.MeshPhongMaterial({map:new THREE.CanvasTexture(texCanvas),shininess:15,specular:new THREE.Color(0x112244)})
+  );
+  earthGroup.add(globe);
+  earthGroup.add(new THREE.Mesh(
+    new THREE.SphereGeometry(1.03,32,32),
+    new THREE.MeshPhongMaterial({color:0x3366ff,transparent:true,opacity:0.06,side:THREE.FrontSide})
+  ));
+
+  marker = new THREE.Mesh(new THREE.SphereGeometry(0.025,12,12), new THREE.MeshBasicMaterial({color:0xff4444}));
+  ring = new THREE.Mesh(new THREE.TorusGeometry(0.04,0.006,8,32), new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:0.7}));
+  arrowHelper = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), 0.4, 0x6c8fff, 0.08, 0.06);
+  earthGroup.add(marker);
+  earthGroup.add(ring);
+  earthGroup.add(arrowHelper);
+
+  scene.add(new THREE.AmbientLight(0x334466, 1));
+  sunLight = new THREE.DirectionalLight(0xffffff, 1.4);
+  sunGlow = new THREE.DirectionalLight(0xffdd88, 0.3);
+  scene.add(sunLight);
+  scene.add(sunGlow);
+
+  sunMat = new THREE.MeshBasicMaterial({color:0xffdd44});
+  sunSphere = new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16), sunMat);
+  coronaMat = new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.4});
+  corona = new THREE.Mesh(new THREE.TorusGeometry(0.14,0.02,8,32), coronaMat);
+  scene.add(sunSphere);
+  scene.add(corona);
+
+  // #region Drag mechanics
+  let orbitTheta = 0;
+  let orbitPhi = 0.3;
+  let isDragging = false;
+  let prevMouse = {x:0, y:0};
+  let orbitRadius = 3;
+
+  // ZOOM CONSTANTS
+  const MIN_RADIUS = 2;
+  const MAX_RADIUS = 8;
+
+  function updateCamera() {
+    camera.position.set(
+      orbitRadius * Math.sin(orbitPhi) * Math.sin(orbitTheta),
+      orbitRadius * Math.cos(orbitPhi),
+      orbitRadius * Math.sin(orbitPhi) * Math.cos(orbitTheta)
+    );
+    camera.lookAt(0, 0, 0);
+  }
+  updateCamera();
+
+  renderer.domElement.addEventListener('wheel', e => {
+    e.preventDefault();
+    orbitRadius += e.deltaY * 0.005;
+    orbitRadius = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, orbitRadius));
+    updateCamera();
+  }, {passive: false});
+
+  renderer.domElement.addEventListener('mousedown', e => {
+    isDragging = true;
+    prevMouse = {x: e.clientX, y: e.clientY};
+  });
+  renderer.domElement.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    orbitTheta -= (e.clientX - prevMouse.x) * 0.005;
+    orbitPhi   += (e.clientY - prevMouse.y) * 0.005;
+    orbitPhi = Math.max(0.05, Math.min(PI - 0.05, orbitPhi));
+    prevMouse = {x: e.clientX, y: e.clientY};
+    updateCamera();
+  });
+  renderer.domElement.addEventListener('mouseup',    () => isDragging = false);
+  renderer.domElement.addEventListener('mouseleave', () => isDragging = false);
+  renderer.domElement.addEventListener('touchstart', e => {
+    isDragging = true;
+    prevMouse = {x: e.touches[0].clientX, y: e.touches[0].clientY};
+  }, {passive: true});
+  renderer.domElement.addEventListener('touchmove', e => {
+    if (!isDragging) return;
+    orbitTheta -= (e.touches[0].clientX - prevMouse.x) * 0.005;
+    orbitPhi   += (e.touches[0].clientY - prevMouse.y) * 0.005;
+    orbitPhi = Math.max(0.05, Math.min(PI - 0.05, orbitPhi));
+    prevMouse = {x: e.touches[0].clientX, y: e.touches[0].clientY};
+    updateCamera();
+  }, {passive: true});
+  renderer.domElement.addEventListener('touchend', () => isDragging = false);
+
+  const resize = () => {
+    const w = container.clientWidth, h = container.clientHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  };
+  resize();
+  window.addEventListener('resize', resize);
+
+  const stopAnim = document.getElementById('ov-rotates')
+  let animFlag = true;
+  stopAnim.addEventListener('change', function() {
+    if (this.checked) {animFlag = true;} else {animFlag = false;}
+  });
+  stopAnim.dispatchEvent(new Event('change')); // Trigger on init
+
+  function animate() {
+    requestAnimationFrame(animate);
+    if (!isDragging && animFlag) {
+      orbitTheta += 0.001;
+      updateCamera();
+    } else {
+    }
+    renderer.render(scene, camera);
+  }
+  animate();
+  // #endregion
+
+  loadCountries();
+  
+}
+// #endregion 3D SCENE
+
+// #region date and time
+// user-agent
+function detectTimezone() {
+  return -new Date().getTimezoneOffset() / 60;
+}
+function formatTimeString(hoursDecimal) {
+  let clamped = hoursDecimal;
+  if (clamped < 0) clamped = 0;
+  if (clamped >= 24) clamped = 23.999999;
+  
+  const totalSeconds = Math.round(clamped * 3600);
+  const h = Math.min(Math.floor(totalSeconds / 3600), 23);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function formatDateString(year, month, day) {
+  const dateObj = new Date(year, month - 1, day);
+  return dateObj.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function formatDateTimeString(year, month, day, hoursDecimal) {
+  return `${formatDateString(year, month, day)} ${formatTimeString(hoursDecimal)}`;
+}
+
+function getDecimalHours(date) {
+  return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+}
+
+function formatTimezone(tz) {
+  const sign = tz >= 0 ? '+' : '';
+  const hours = Math.floor(Math.abs(tz));
+  const minutes = Math.round((Math.abs(tz) - hours) * 60);
+  if (minutes === 0) {
+    return `UTC${sign}${hours}`;
+  } else {
+    return `UTC${sign}${hours}:${String(minutes).padStart(2, '0')}`;
+  }
+}
+
+function populateTimezoneSelect() {
+  const select = document.getElementById('tz-select');
+  select.innerHTML = '';
+  const specialLabels = {
+    '-12': 'UTC-12',
+    '-11': 'UTC-11',
+    '-10': 'UTC-10',
+    '-9': 'UTC-9',
+    '-8': 'UTC-8 (Pacific)',
+    '-7': 'UTC-7 (Mountain)',
+    '-6': 'UTC-6 (Central)',
+    '-5': 'UTC-5 (Eastern)',
+    '-4': 'UTC-4',
+    '-3.5': 'UTC-3:30 (Newfoundland)',
+    '-3': 'UTC-3',
+    '-2': 'UTC-2',
+    '-1': 'UTC-1',
+    '0': 'UTC (GMT)',
+    '1': 'UTC+1 (CET)',
+    '2': 'UTC+2 (EET)',
+    '3': 'UTC+3',
+    '3.5': 'UTC+3:30 (Iran)',
+    '4': 'UTC+4',
+    '4.5': 'UTC+4:30 (Afghanistan)',
+    '5': 'UTC+5',
+    '5.5': 'UTC+5:30 (India)',
+    '5.75': 'UTC+5:45 (Nepal)',
+    '6': 'UTC+6',
+    '6.5': 'UTC+6:30 (Myanmar)',
+    '7': 'UTC+7',
+    '8': 'UTC+8 (China)',
+    '8.5': 'UTC+8:30 (North Korea)',
+    '8.75': 'UTC+8:45 (Australia/Eucla)',
+    '9': 'UTC+9 (Japan)',
+    '9.5': 'UTC+9:30 (Australia/Central)',
+    '10': 'UTC+10 (Australia/East)',
+    '10.5': 'UTC+10:30 (Lord Howe)',
+    '11': 'UTC+11',
+    '12': 'UTC+12',
+    '12.75': 'UTC+12:45 (Chatham Islands)',
+    '13': 'UTC+13',
+    '14': 'UTC+14'
+  };
+  
+  const steps = [0, 0.25, 0.5, 0.75];
+  const offsets = [];
+  
+  for (let tz = -12; tz <= 14; tz += 0.25) {
+  
+    const rounded = Math.round(tz * 100) / 100;
+    offsets.push(rounded);
+  }
+  const uniqueOffsets = [...new Set(offsets)];
+  
+  uniqueOffsets.forEach(tz => {
+    const option = document.createElement('option');
+    option.value = tz;
+    
+    let label = specialLabels[tz.toString()];
+    
+    if (!label) {
+      const sign = tz >= 0 ? '+' : '';
+      const absTz = Math.abs(tz);
+      const hours = Math.floor(absTz);
+      const minutes = Math.round((absTz - hours) * 60);
+      if (minutes === 0) {
+        label = `UTC${sign}${hours}`;
+      } else {
+        label = `UTC${sign}${hours}:${String(minutes).padStart(2, '0')}`;
+      }
+    }
+    
+    option.textContent = label;
+    select.appendChild(option);
+  });
+  const detected = detectTimezone();
+  const rounded = Math.round(detected * 4) / 4;
+  select.value = rounded;
+  console.log(rounded)
+  state.tz = rounded;
+  const tzDisplay = document.getElementById('tz-display');
+  if (tzDisplay) {
+    tzDisplay.textContent = formatTimezone(rounded);
+  } else {console.log("HELLO")}
+}
+document.getElementById('tz-select').addEventListener('change', function() {
+  state.tz = parseFloat(this.value);
+  const tzDisplay = document.getElementById('tz-display');
+  if (tzDisplay) {
+    tzDisplay.textContent = formatTimezone(state.tz);
+  }
+  runAll();
+});
+// #endregion
+
+// state
+const now = new Date();
+const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+const state = {
+  lat: 57.71,
+  lon: 11.97,
+  elev: 20,
+  tz: detectTimezone(),
+  date: dateStr,
+  year: now.getFullYear(),
+  month: now.getMonth() + 1,
+  day: now.getDate(),
+  hour: getDecimalHours(now),
+  deltaT: 69,
+  deltaUt1: 0,
+  pressure: 1013,
+  temp: 15,
+  slope: 30,
+  panAzm: 180,
+  pnom: 375,
+  pcount: 24,
+  eff: 0.80,
+  atmosRefract: 0.5667,
+  chartMode: 'power',
+  panelArea: 1.7,
+  powerMode: 'stc',
+  modEff: 0.20,
+};
+
+
+function bindSlider(id, key, display, fmt, init=true) {
+  const sl = document.getElementById(id);
+  if (!sl) {
+    console.log("[Warn], missing in DOM: ", id);
+    return
+  }
+  
+  const dp = document.getElementById(display);
+  
+  const update = () => {
+    state[key] = parseFloat(sl.value);
+    if (dp) dp.textContent = fmt(state[key]);
+    runAll();
+  };
+  
+  sl.addEventListener('input', update);
+  
+  if (init && state[key] !== undefined) {
+    sl.value = state[key];
+    if (dp) dp.textContent = fmt(state[key]);
+  }
+}
+
+function updatePill() {
+  const pill = document.querySelector('.sun-overlay .pill');
+  if (!pill) return;
+  
+  pill.textContent = formatDateTimeString(
+    state.year,
+    state.month,
+    state.day,
+    state.hour
+  );
+}
+
+function initTimeSlider() {
+  const timeSlider = document.getElementById('time-slider');
+  const timeDisplay = document.getElementById('time-display');
+  
+  if (!timeSlider || !timeDisplay) return;
+ 
+  timeSlider.value = state.hour;
+  timeDisplay.textContent = formatTimeString(state.hour);
+
+  timeSlider.addEventListener('input', function() {
+    state.hour = parseFloat(this.value);
+    timeDisplay.textContent = formatTimeString(state.hour);
+    updatePill();
+    updateObsPosition();
+  });
+}
+
+function initSliders() {
+  bindSlider('lat-slider', 'lat', 'lat-display', v => v.toFixed(2) + '°');
+  bindSlider('lon-slider', 'lon', 'lon-display', v => v.toFixed(2) + '°');
+  bindSlider('elev-slider', 'elev', 'elev-display', v => v.toFixed(0) + ' m');
+
+  bindSlider('dt-slider', 'deltaT', 'dt-display', v => v.toFixed(0) + ' s');
+  bindSlider('slope-slider', 'slope', 'slope-display', v => v.toFixed(0) + '°');
+  bindSlider('panazm-slider', 'panAzm', 'panazm-display', v => v.toFixed(0) + '°');
+  bindSlider('pcount-slider', 'pcount', 'pcount-display', v => v.toFixed(0));
+  bindSlider('eff-slider', 'eff', 'eff-display', v => (v * 100).toFixed(0) + '%');
+  
+  bindSlider('pnom-slider', 'pnom', 'pnom-display', v => v.toFixed(0) + ' W');
+  bindSlider('area-slider', 'panelArea', 'area-display', v => v.toFixed(1) + ' m²');
+
+  bindSlider('area-slider2', 'panelArea', 'area-display2', v => v.toFixed(1) + ' m²');
+  bindSlider('mod-eff-slider', 'modEff', 'mod-eff-display', v => (v * 100).toFixed(0) + '%');
+  bindSlider('pnom-slider2', 'pnom', 'pnom-display2', v => v.toFixed(0) + ' W');
+  initTimeSlider();
+}
+
+// TODO: encapsulate
+['zenith','altitude','power','azimuth'].forEach(tab=>{
+  document.getElementById('tab-'+tab).addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.getElementById('tab-'+tab).classList.add('active');
+    state.chartMode=tab;
+    drawChart(lastDayData);
+  });
+});
+
+
+const chartCanvas=document.getElementById('chart-canvas');
+const ctx=chartCanvas.getContext('2d');
+let lastDayData=[];
+
+function resizeChart(){
+  const panel=document.querySelector('.chart-panel');
+  chartCanvas.width=panel.clientWidth;
+  chartCanvas.height=panel.clientHeight;
+  drawChart(lastDayData);
+}
+window.addEventListener('resize',resizeChart);
+
+function drawChart(data){
+  if(!data.length)return;
+  const W=chartCanvas.width,H=chartCanvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  const pad={top:10,right:20,bottom:30,left:42};
+  const iW=W-pad.left-pad.right,iH=H-pad.top-pad.bottom;
+
+  let key,label,color,unit;
+  switch(state.chartMode){
+    case 'zenith': key='zenith';label='Zenith angle';color='#6c8fff';unit='°';break;
+    case 'altitude': key='altitude';label='Altitude';color='#4ecb71';unit='°';break;
+    case 'power': key='power';label='Estimated power';color='#ff9f43';unit='W';break;
+    case 'azimuth': key='azimuth';label='Azimuth';color='#a29bfe';unit='°';break;
+  }
+
+  const vals=data.map(d=>d[key]);
+  const minV=Math.min(...vals),maxV=Math.max(...vals);
+  const range=maxV-minV||1;
+
+  ctx.strokeStyle='rgba(255,255,255,0.05)';
+  ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=pad.top+iH-(i/4)*iH;
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+iW,y);ctx.stroke();
+    const v=minV+(i/4)*range;
+    ctx.fillStyle='rgba(136,136,160,0.8)';
+    ctx.font='10px Inter,system-ui,sans-serif';
+    ctx.textAlign='right';
+    ctx.fillText(v.toFixed(0)+unit,pad.left-4,y+3);
+  }
+
+  ctx.fillStyle='rgba(136,136,160,0.8)';
+  ctx.font='10px Inter,system-ui,sans-serif';
+  ctx.textAlign='center';
+  [0,6,12,18,24].forEach(h=>{
+    const x=pad.left+(h/24)*iW;
+    ctx.fillText(h+':00',x,H-6);
+  });
+
+  const curX=pad.left+(state.hour/24)*iW;
+  ctx.strokeStyle='rgba(255,255,255,0.2)';
+  ctx.lineWidth=1;
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.moveTo(curX,pad.top);ctx.lineTo(curX,pad.top+iH);ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.beginPath();
+  data.forEach((d,i)=>{
+    const x=pad.left+(i/24)*iW;
+    const y=pad.top+iH-((d[key]-minV)/range)*iH;
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  });
+  ctx.lineTo(pad.left+iW,pad.top+iH);
+  ctx.lineTo(pad.left,pad.top+iH);
+  ctx.closePath();
+  const grad=ctx.createLinearGradient(0,pad.top,0,pad.top+iH);
+  grad.addColorStop(0,color+'44');
+  grad.addColorStop(1,color+'00');
+  ctx.fillStyle=grad;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.strokeStyle=color;
+  ctx.lineWidth=2;
+  data.forEach((d,i)=>{
+    const x=pad.left+(i/24)*iW;
+    const y=pad.top+iH-((d[key]-minV)/range)*iH;
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  const curIdx=Math.min(Math.floor(state.hour),23);
+  if(curIdx<data.length){
+    const cx2=pad.left+(curIdx/24)*iW;
+    const cv=data[curIdx][key];
+    const cy2=pad.top+iH-((cv-minV)/range)*iH;
+    ctx.beginPath();ctx.arc(cx2,cy2,4,0,Math.PI*2);
+    ctx.fillStyle=color;ctx.fill();
+  }
+}
+
+function frHrToHms(fh){
+  if(fh<0||fh>24)return '—';
+  const h=Math.floor(fh),m=Math.floor((fh-h)*60),s=Math.round(((fh-h)*60-m)*60);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+// #region power
+/**
+ * Total array output at a given time
+ */
+function computePower(res) {
+  const zenithRad = d2r(res.zenith);
+  const cosZ = Math.max(0.01, Math.cos(zenithRad));
+  const airMass = 1 / cosZ;
+  const GHI = 1000 * Math.exp(-0.14 * (airMass - 1));
+  const of = orientationFactor(res.azimuth, state.panAzm, res.zenith, state.slope);
+  const POA = GHI * of;
+  const systemEff = state.eff;
+  
+  let power;
+  
+  if (state.powerMode === 'stc') {
+    // branch 1: STC-based (using nominal power)
+    // Panel produces its rated power at 1000 W/m^2
+    const powerPerPanel = state.pnom * (POA / 1000) * systemEff;
+    power = powerPerPanel * state.pcount;
+  } else {
+    // branch 2: Area-based
+    // Calculate from panel area and efficiency
+    const moduleEff = state.modEff;
+    const panelArea = state.panelArea;
+    const powerPerPanel = POA * panelArea * moduleEff * systemEff;
+    power = powerPerPanel * state.pcount;
+  }
+  
+  return { 
+    power: Math.max(0, power), 
+    of,
+    poa: POA,
+    ghi: GHI,
+    mode: state.powerMode
+  };
+}
+
+function initPowerModeToggle() {
+  const toggles = document.querySelectorAll('.mode-toggle');
+  const stcFields = document.getElementById('stc-fields');
+  const areaFields = document.getElementById('area-fields');
+  toggles.forEach(toggle => {
+    toggle.addEventListener('click', function() {
+      toggles.forEach(t => t.classList.remove('active'));
+      this.classList.add('active');
+      state.powerMode = this.dataset.mode;
+      if (state.powerMode === 'stc') {
+        stcFields.style.display = 'block';
+        areaFields.style.display = 'none';
+      } else {
+        stcFields.style.display = 'none';
+        areaFields.style.display = 'block';
+      }
+      runAll();
+    });
+  });
+}
+// #endregion
+
+function runAll(){
+  const dayData=[];
+  for(let h=0;h<24;h++){
+    const res=spa(state.year, state.month, state.day, h, 0, 0, state.tz, state.lat, 
+              state.lon, state.elev, state.pressure, state.temp, state.deltaT, 
+              state.deltaUt1, state.slope, state.panAzm, state.atmosRefract);
+    const { power, of } = computePower(res);
+    dayData.push({
+    ...res,
+    power,
+    orientationFactor: of
+    });
+  }
+  lastDayData=dayData;
+  const midRes=dayData[12];
+  const isPolarDay = midRes.sunrise <= -99990 && midRes.altitude > 0;
+  const isPolarNight = midRes.sunrise <= -99990 && midRes.altitude <= 0
+  document.getElementById('s-sunrise').textContent = isPolarDay ? 'Polar day' : isPolarNight ? 'Polar night' : frHrToHms(midRes.sunrise);
+  document.getElementById('s-sunset').textContent = isPolarDay ? 'Polar day' : isPolarNight ? 'Polar night' : frHrToHms(midRes.sunset);
+  document.getElementById('s-noon').textContent = isPolarDay ? frHrToHms(midRes.suntransit) : isPolarNight ? '—' : frHrToHms(midRes.suntransit)
+
+  updatePill();
+  resizeChart();
+  updateObsPosition();
+}
+
+let sp = new THREE.Vector3(0, 0, 0);
+let sunDist = 2.8;
+function updateSP(res) {
+
+  const ra  = d2r(res.alpha);
+  const dec = d2r(res.delta);
+
+  const sunDir = new THREE.Vector3(
+    Math.cos(dec) * Math.cos(ra),
+    Math.sin(dec),
+    Math.cos(dec) * Math.sin(ra)
+  ).normalize();
+
+  const sunPos = sunDir.multiplyScalar(2.8);
+  sunSphere.position.copy(sunPos);
+  corona.position.copy(sunPos);
+  corona.lookAt(0,0,0);
+  sunLight.position.copy(sunPos);
+  sunGlow.position.copy(sunPos);
+
+  const sunAlpha = Math.max(0, Math.min(1, (res.altitude+5)/10));
+  sunMat.opacity = sunAlpha;
+  coronaMat.opacity = sunAlpha * 0.4;
+}
+
+function updateSPUI(res, power, of) {
+  document.getElementById('s-zenith').textContent=res.zenith.toFixed(1)+'°';
+  document.getElementById('s-azimuth').textContent=res.azimuth.toFixed(1)+'°';
+  document.getElementById('s-altitude').textContent=res.altitude.toFixed(1)+'°';
+  document.getElementById('s-factor').textContent=(of*100).toFixed(0)+'%';
+  document.getElementById('s-power').innerHTML=power.toFixed(0)+' <span class="stat-unit">W</span>';
+  document.getElementById('ov-zenith').textContent=res.zenith.toFixed(2)+'°';
+  document.getElementById('ov-azimuth').textContent=res.azimuth.toFixed(2)+'°';
+  document.getElementById('ov-altitude').textContent=res.altitude.toFixed(2)+'°';
+}
+
+/**
+ * Updates observer position AND local solar position (UI).
+ *
+ */
+function updateObsPosition() {
+
+  const h = Math.floor(state.hour), m = Math.round((state.hour-h)*60);
+  const res = spa(state.year,state.month,state.day,h,m,0,state.tz,state.lat,state.lon,state.elev,state.pressure,state.temp,state.deltaT,state.deltaUt1,state.slope,state.panAzm,state.atmosRefract);
+  const { power, of } = computePower(res);
+
+  // Observer local frame (shared by marker, panel arrow, and sun)
+  const pos = latLonToVec3(state.lat, state.lon, 1.0);
+  const up = pos.clone().normalize();
+  const east = new THREE.Vector3(-Math.sin(d2r(state.lon)), 0, Math.cos(d2r(state.lon))).normalize();
+  const north = new THREE.Vector3().crossVectors(up, east).normalize();
+
+  // Marker
+  marker.position.copy(pos);
+  ring.position.copy(pos);
+  ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), up);
+
+  // Panel arrow
+  const slopeRad = d2r(state.slope);
+  const pAzmRad  = d2r(state.panAzm);
+  const pNorm = new THREE.Vector3(
+    Math.sin(slopeRad)*Math.sin(pAzmRad),
+    Math.cos(slopeRad),
+    Math.sin(slopeRad)*Math.cos(pAzmRad)
+  ).normalize();
+  const panelDir = new THREE.Vector3()
+    .addScaledVector(north, pNorm.x)
+    .addScaledVector(up,    pNorm.y)
+    .addScaledVector(east,  pNorm.z)
+    .normalize();
+  arrowHelper.position.copy(pos);
+  arrowHelper.setDirection(panelDir);
+  arrowHelper.setColor(new THREE.Color(of>0 ? 0x6c8fff : 0x444444));
+
+  updateSP(res);
+  updateEarthRotation(res);
+  updateSPUI(res, power, of);
+  drawChart(lastDayData);
+}
+
+function updateEarthRotation(res) {
+  const gst = d2r(res.nu);
+  earthGroup.rotation.set(0, -gst, 0);
+}
+
+function initDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  
+  document.getElementById('date-input').value = dateStr;
+  state.date = dateStr;
+  state.year = year;
+  state.month = parseInt(month);
+  state.day = parseInt(day);
+}
+
+document.getElementById('date-input').addEventListener('change', function(e) {
+  const parts = e.target.value.split('-');
+  state.date = e.target.value;
+  state.year = parseInt(parts[0]);
+  state.month = parseInt(parts[1]);
+  state.day = parseInt(parts[2]);
+  runAll();
+});
+
+function initShittyApp() {
+  initGlobe();
+  initGeocoder();
+  initDate();
+  initPowerModeToggle();
+  initSliders();
+  populateTimezoneSelect();
+  runAll();
+  resizeChart();
+}
+initShittyApp();
