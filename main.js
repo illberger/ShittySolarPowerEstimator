@@ -368,7 +368,7 @@ function initGlobe() {
     if (!isDragging) return;
     orbitTheta -= (e.clientX - prevMouse.x) * 0.005;
     orbitPhi   += (e.clientY - prevMouse.y) * 0.005;
-    orbitPhi = Math.max(0.05, Math.min(PI - 0.05, orbitPhi));
+    orbitPhi = Math.max(0.05, Math.min(Math.PI - 0.05, orbitPhi));
     prevMouse = {x: e.clientX, y: e.clientY};
     updateCamera();
   });
