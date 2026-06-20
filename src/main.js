@@ -650,8 +650,7 @@ function initTimeSlider() {
   timeSlider.addEventListener('input', function() {
     state.hour = parseFloat(this.value);
     timeDisplay.textContent = formatTimeString(state.hour);
-    updatePill();
-    updateObsPosition();
+    runAll();
   });
 }
 
