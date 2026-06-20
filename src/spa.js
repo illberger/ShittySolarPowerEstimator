@@ -74,7 +74,7 @@ function julianDay(yr,mo,dy,hr,mn,sc,dut1,tz){
   return jd;
 }
 
-export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,temp,deltaT,deltaUt1,slope,azmRot,atmosRefract){
+export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,temp,deltaT,deltaUt1,atmosRefract){
   const jd=julianDay(year,month,day,hour,minute,second,deltaUt1,tz);
   const jc=(jd-2451545)/36525;
   const jde=jd+deltaT/86400;
@@ -144,9 +144,6 @@ export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,t
   const azimuthAstro=limitDeg(r2d(Math.atan2(Math.sin(HPrimeR),Math.cos(HPrimeR)*Math.sin(latR)-Math.tan(deltaPrimeR)*Math.cos(latR))));
   const azimuth=limitDeg(azimuthAstro+180);
 
-  // Incidence
-  const zenithR=d2r(zenith),slopeR=d2r(slope);
-  const incidence=r2d(Math.acos(Math.cos(zenithR)*Math.cos(slopeR)+Math.sin(slopeR)*Math.sin(zenithR)*Math.cos(d2r(azimuthAstro-azmRot))));
 
   // RTS
   let sunrise=-99999,sunset=-99999,suntransit=-99999;
@@ -230,5 +227,17 @@ export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,t
     sunset=dayFracToLocalHr(sunRiseSet(2),tz);
   }
 
-  return {zenith,azimuth,altitude:e,incidence,sunrise,sunset,suntransit,eot,jd,R,alpha,delta,H,nu};
+  return {zenith,azimuth,altitude:e,sunrise,sunset,suntransit,eot,jd,R,alpha,delta,H,nu};
 }
+
+
+/** 
+ * Simplification irradiance estimation.
+ */
+export function orientationFactor(sunAzimuth,roofAzimuth,sunZenith,panelSlope){
+  if(sunZenith>90)return 0;
+  const zr=d2r(sunZenith),sr=d2r(panelSlope),ar=d2r(sunAzimuth-roofAzimuth);
+  const ct=Math.cos(zr)*Math.cos(sr)+Math.sin(zr)*Math.sin(sr)*Math.cos(ar);
+  return ct>0?ct:0;
+}
+

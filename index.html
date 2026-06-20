@@ -425,7 +425,7 @@
     border-radius: 6px;
     color: var(--text2);
     padding: 4px 10px;
-    font-size: 11px;
+    font-size: 9px;
     cursor: pointer;
     font-family: var(--font);
     transition: all 0.15s;
@@ -649,6 +649,7 @@
         <button class="tab-btn" id="tab-altitude">Altitude</button>
         <button class="tab-btn active" id="tab-power">Power</button>
         <button class="tab-btn" id="tab-azimuth">Azimuth</button>
+        <button class="tab-btn" id="tab-optimum">Optimum</button>
       </div>
     </div>
 
@@ -663,6 +664,7 @@
         <div class="row"><span class="lbl">Azimuth</span><span class="val" id="ov-azimuth">—</span></div>
         <div class="row"><span class="lbl">Altitude</span><span class="val" id="ov-altitude">—</span></div>
         <div class="row"><input type="checkbox" id="ov-rotates" name="ov-rotates" checked/>Auto-rotate</div>
+        <div class="row"><input type="checkbox" id="ov-opt" name="ov-opt" checked/>Auto-optimize</div>
       </div>
     </div>
 
@@ -680,8 +682,7 @@
     </div>
   </div>
 </div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script type="module" src="./main.js"></script>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>

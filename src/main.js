@@ -1,19 +1,23 @@
-import { spa, d2r, r2d } from './spa.js';
-
+import { orientationFactor, spa, d2r, r2d } from './spa.js';
+import { optimizeAtIndex, optimizeDay } from './optimum.js'
 
 let earthGroup;
 let marker, ring, arrowHelper, sunSphere, sunMat, corona, coronaMat;
 let sunLight, sunGlow;
 let renderer, scene, camera;
+let lastOptKey = null;
 
-/** 
- * Function used to simplify irradiance estimation 
-*/
-function orientationFactor(sunAzimuth,roofAzimuth,sunZenith,panelSlope){
-  if(sunZenith>90)return 0;
-  const zr=d2r(sunZenith),sr=d2r(panelSlope),ar=d2r(sunAzimuth-roofAzimuth);
-  const ct=Math.cos(zr)*Math.cos(sr)+Math.sin(zr)*Math.sin(sr)*Math.cos(ar);
-  return ct>0?ct:0;
+function shouldRecompute(state) {
+  const key = `${state.lat}-${state.lon}-${state.slope}-${state.panAzm}-${state.year}-${state.month}-${state.day}-${state.hour}`;
+  if (key === lastOptKey) return false;
+  lastOptKey = key;
+  return true;
+}
+
+function syncPanelSliders() {
+  if (!autoOpt) return;
+  document.getElementById('panazm-slider').value = state.panAzm;
+  document.getElementById('slope-slider').value = state.slope; 
 }
 
 /**
@@ -402,7 +406,7 @@ function initGlobe() {
   stopAnim.addEventListener('change', function() {
     if (this.checked) {animFlag = true;} else {animFlag = false;}
   });
-  stopAnim.dispatchEvent(new Event('change')); // Trigger on init
+  stopAnim.dispatchEvent(new Event('change'));
 
   function animate() {
     requestAnimationFrame(animate);
@@ -545,7 +549,6 @@ function populateTimezoneSelect() {
   const detected = detectTimezone();
   const rounded = Math.round(detected * 4) / 4;
   select.value = rounded;
-  console.log(rounded)
   state.tz = rounded;
   const tzDisplay = document.getElementById('tz-display');
   if (tzDisplay) {
@@ -602,6 +605,14 @@ function bindSlider(id, key, display, fmt, init=true) {
   const dp = document.getElementById(display);
   
   const update = () => {
+    // Edge case
+    if (id === 'panazm-slider' || id === 'slope-slider') {
+      if (autoOpt) {
+        document.getElementById('ov-opt').checked = false;
+        autoOpt = false;
+      }
+    }
+
     state[key] = parseFloat(sl.value);
     if (dp) dp.textContent = fmt(state[key]);
     runAll();
@@ -664,19 +675,24 @@ function initSliders() {
   initTimeSlider();
 }
 
-// TODO: encapsulate
-['zenith','altitude','power','azimuth'].forEach(tab=>{
-  document.getElementById('tab-'+tab).addEventListener('click',()=>{
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-    document.getElementById('tab-'+tab).classList.add('active');
-    state.chartMode=tab;
-    drawChart(lastDayData);
+function initChartBtns() {
+  ['zenith','altitude','power','azimuth','optimum'].forEach(tab=>{
+    document.getElementById('tab-'+tab).addEventListener('click',()=>{
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      document.getElementById('tab-'+tab).classList.add('active');
+      state.chartMode=tab;
+      drawChart(lastDayData);//
+    });
   });
-});
+}
 
 
 const chartCanvas=document.getElementById('chart-canvas');
 const ctx=chartCanvas.getContext('2d');
+
+/**
+ * Array of dicts with hourly cadence {res, power, orientation_factor}
+ */
 let lastDayData=[];
 
 function resizeChart(){
@@ -687,86 +703,127 @@ function resizeChart(){
 }
 window.addEventListener('resize',resizeChart);
 
-function drawChart(data){
-  if(!data.length)return;
-  const W=chartCanvas.width,H=chartCanvas.height;
-  ctx.clearRect(0,0,W,H);
-
-  const pad={top:10,right:20,bottom:30,left:42};
-  const iW=W-pad.left-pad.right,iH=H-pad.top-pad.bottom;
-
-  let key,label,color,unit;
-  switch(state.chartMode){
-    case 'zenith': key='zenith';label='Zenith angle';color='#6c8fff';unit='°';break;
-    case 'altitude': key='altitude';label='Altitude';color='#4ecb71';unit='°';break;
-    case 'power': key='power';label='Estimated power';color='#ff9f43';unit='W';break;
-    case 'azimuth': key='azimuth';label='Azimuth';color='#a29bfe';unit='°';break;
-  }
-
-  const vals=data.map(d=>d[key]);
-  const minV=Math.min(...vals),maxV=Math.max(...vals);
-  const range=maxV-minV||1;
-
-  ctx.strokeStyle='rgba(255,255,255,0.05)';
-  ctx.lineWidth=1;
-  for(let i=0;i<=4;i++){
-    const y=pad.top+iH-(i/4)*iH;
-    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+iW,y);ctx.stroke();
-    const v=minV+(i/4)*range;
-    ctx.fillStyle='rgba(136,136,160,0.8)';
-    ctx.font='10px Inter,system-ui,sans-serif';
-    ctx.textAlign='right';
-    ctx.fillText(v.toFixed(0)+unit,pad.left-4,y+3);
-  }
-
-  ctx.fillStyle='rgba(136,136,160,0.8)';
-  ctx.font='10px Inter,system-ui,sans-serif';
-  ctx.textAlign='center';
-  [0,6,12,18,24].forEach(h=>{
-    const x=pad.left+(h/24)*iW;
-    ctx.fillText(h+':00',x,H-6);
-  });
-
-  const curX=pad.left+(state.hour/24)*iW;
-  ctx.strokeStyle='rgba(255,255,255,0.2)';
-  ctx.lineWidth=1;
-  ctx.setLineDash([4,4]);
-  ctx.beginPath();ctx.moveTo(curX,pad.top);ctx.lineTo(curX,pad.top+iH);ctx.stroke();
-  ctx.setLineDash([]);
-
+function drawSeries(ctx, vals, color, minV, range, pad, iW, iH) {
   ctx.beginPath();
-  data.forEach((d,i)=>{
-    const x=pad.left+(i/24)*iW;
-    const y=pad.top+iH-((d[key]-minV)/range)*iH;
-    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-  });
-  ctx.lineTo(pad.left+iW,pad.top+iH);
-  ctx.lineTo(pad.left,pad.top+iH);
-  ctx.closePath();
-  const grad=ctx.createLinearGradient(0,pad.top,0,pad.top+iH);
-  grad.addColorStop(0,color+'44');
-  grad.addColorStop(1,color+'00');
-  ctx.fillStyle=grad;
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.strokeStyle=color;
-  ctx.lineWidth=2;
-  data.forEach((d,i)=>{
-    const x=pad.left+(i/24)*iW;
-    const y=pad.top+iH-((d[key]-minV)/range)*iH;
-    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  vals.forEach((v, i) => {
+    const x = pad.left + (i / 24) * iW;
+    const y = pad.top + iH - ((v - minV) / range) * iH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
   ctx.stroke();
+}
 
-  const curIdx=Math.min(Math.floor(state.hour),23);
-  if(curIdx<data.length){
-    const cx2=pad.left+(curIdx/24)*iW;
-    const cv=data[curIdx][key];
-    const cy2=pad.top+iH-((cv-minV)/range)*iH;
-    ctx.beginPath();ctx.arc(cx2,cy2,4,0,Math.PI*2);
-    ctx.fillStyle=color;ctx.fill();
+function drawDot(ctx, vals, color, minV, range, pad, iW, iH) {
+  const curIdx = Math.min(Math.floor(state.hour), 23);
+  if (curIdx >= vals.length) return;
+  const cx = pad.left + (curIdx / 24) * iW;
+  const cy = pad.top + iH - ((vals[curIdx] - minV) / range) * iH;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawGrid(pad, iW, iH, minV, maxV, range, unit) {
+  const W = chartCanvas.width, H = chartCanvas.height;
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + iH - (i / 4) * iH;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + iW, y);
+    ctx.stroke();
+    const v = minV + (i / 4) * range;
+    ctx.fillStyle = 'rgba(136,136,160,0.8)';
+    ctx.font = '10px Inter,system-ui,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(v.toFixed(0) + unit, pad.left - 4, y + 3);
   }
+  ctx.fillStyle = 'rgba(136,136,160,0.8)';
+  ctx.font = '10px Inter,system-ui,sans-serif';
+  ctx.textAlign = 'center';
+  [0, 6, 12, 18, 24].forEach(h => {
+    const x = pad.left + (h / 24) * iW;
+    ctx.fillText(h + ':00', x, H - 6);
+  });
+  const curX = pad.left + (state.hour / 24) * iW;
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(curX, pad.top);
+  ctx.lineTo(curX, pad.top + iH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawAreaFill(ctx, vals, color, minV, range, pad, iW, iH) {
+  ctx.beginPath();
+  vals.forEach((v, i) => {
+    const x = pad.left + (i / 24) * iW;
+    const y = pad.top + iH - ((v - minV) / range) * iH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.left + iW, pad.top + iH);
+  ctx.lineTo(pad.left, pad.top + iH);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + iH);
+  grad.addColorStop(0, color + '44');
+  grad.addColorStop(1, color + '00');
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+
+/**
+ * 
+ * @param {Array} data  // len=24 [{spa: {,,,,,,,,,,}, power: float, of: float}] 
+ * @returns 
+ */
+function drawChart(data) {
+  if (!data.length) return;
+  const W = chartCanvas.width, H = chartCanvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const pad = {top:10, right:20, bottom:30, left:42};
+  const iW = W - pad.left - pad.right, iH = H - pad.top - pad.bottom;
+
+  if (state.chartMode === 'optimum') {
+    const optData = optimizeDay(lastDayData);
+    const tiltVals = optData.map(d => d.optTilt);
+    const azmVals  = optData.map(d => d.optAzm);
+    drawGrid(pad, iW, iH, 0, 360, 360, '°');
+    drawAreaFill(ctx, tiltVals, '#ff9f43', 0, 360, pad, iW, iH);
+    drawSeries(ctx, tiltVals, '#ff9f43', 0, 360, pad, iW, iH);
+    drawSeries(ctx, azmVals,  '#a29bfe', 0, 360, pad, iW, iH);
+    drawDot(ctx, tiltVals, '#ff9f43', 0, 360, pad, iW, iH);
+    drawDot(ctx, azmVals,  '#a29bfe', 0, 360, pad, iW, iH);
+    document.getElementById('chart-legend').innerHTML = `
+      <span><span class="legend-dot" style="background:#ff9f43"></span>Optimal tilt</span>
+      <span><span class="legend-dot" style="background:#a29bfe"></span>Optimal azimuth</span>`;
+    return;
+  }
+
+  let key, color, unit, label;
+  switch (state.chartMode) {
+    case 'zenith':   key='zenith';   color='#6c8fff'; unit='°'; label='Zenith angle';    break;
+    case 'altitude': key='altitude'; color='#4ecb71'; unit='°'; label='Altitude';        break;
+    case 'power':    key='power';    color='#ff9f43'; unit='W'; label='Estimated power'; break;
+    case 'azimuth':  key='azimuth';  color='#a29bfe'; unit='°'; label='Azimuth';         break;
+  }
+  document.getElementById('chart-legend').innerHTML =
+    `<span><span class="legend-dot" style="background:${color}"></span>${label}</span>`;
+
+  const vals = data.map(d => d[key]);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+
+  drawGrid(pad, iW, iH, minV, maxV, range, unit);
+  drawAreaFill(ctx, vals, color, minV, range, pad, iW, iH);
+  drawSeries(ctx, vals, color, minV, range, pad, iW, iH);
+  drawDot(ctx, vals, color, minV, range, pad, iW, iH);
 }
 
 function frHrToHms(fh){
@@ -835,6 +892,10 @@ function initPowerModeToggle() {
 }
 // #endregion
 
+
+/**
+ * TODO: Redundant
+ */
 function runAll(){
   const dayData=[];
   for(let h=0;h<24;h++){
@@ -855,7 +916,6 @@ function runAll(){
   document.getElementById('s-sunrise').textContent = isPolarDay ? 'Polar day' : isPolarNight ? 'Polar night' : frHrToHms(midRes.sunrise);
   document.getElementById('s-sunset').textContent = isPolarDay ? 'Polar day' : isPolarNight ? 'Polar night' : frHrToHms(midRes.sunset);
   document.getElementById('s-noon').textContent = isPolarDay ? frHrToHms(midRes.suntransit) : isPolarNight ? '—' : frHrToHms(midRes.suntransit)
-
   updatePill();
   resizeChart();
   updateObsPosition();
@@ -904,7 +964,14 @@ function updateSPUI(res, power, of) {
 function updateObsPosition() {
 
   const h = Math.floor(state.hour), m = Math.round((state.hour-h)*60);
-  const res = spa(state.year,state.month,state.day,h,m,0,state.tz,state.lat,state.lon,state.elev,state.pressure,state.temp,state.deltaT,state.deltaUt1,state.slope,state.panAzm,state.atmosRefract);
+
+  const res = spa(state.year,state.month,state.day,h,m,0,state.tz,state.lat,state.lon,state.elev,state.pressure,state.temp,state.deltaT,state.deltaUt1,state.atmosRefract);
+  if (autoOpt && shouldRecompute(state)) {
+    const opt = optimizeAtIndex(lastDayData, h);
+    state.slope = Math.min(Math.max(opt.optTilt, 0), 90);
+    state.panAzm = Math.min(Math.max(opt.optAzm, 0), 360);
+    syncPanelSliders();
+  }
   const { power, of } = computePower(res);
 
   // Observer local frame (shared by marker, panel arrow, and sun)
@@ -969,7 +1036,22 @@ document.getElementById('date-input').addEventListener('change', function(e) {
   runAll();
 });
 
+
+/**
+ * Automatically 'optimizes' the panel vector for the current hour (hourly cadence)
+ */
+let autoOpt = true;
+function initShittyOptimizer() {
+  var optAnim = document.getElementById('ov-opt')
+  optAnim.addEventListener('change', function() {
+    if (this.checked) {autoOpt = true;} else {autoOpt = false;}
+    runAll();
+  });
+  optAnim.dispatchEvent(new Event('change'));
+}
+
 function initShittyApp() {
+  initChartBtns();
   initGlobe();
   initGeocoder();
   initDate();
@@ -978,5 +1060,6 @@ function initShittyApp() {
   populateTimezoneSelect();
   runAll();
   resizeChart();
+  initShittyOptimizer();
 }
 initShittyApp();

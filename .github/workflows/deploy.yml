@@ -3,7 +3,6 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: ["main"]
-    # Don't deploy when these files change
     paths-ignore:
       - "README.md"
       - "*.md"
@@ -25,10 +24,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          path: './'
+          node-version: 20
+
+      - name: Build site
+        run: node build.js
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
   deploy:
     environment:
       name: github-pages
