@@ -460,15 +460,72 @@
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
+
+
+/* MOBILE */
+@media (max-width: 768px) {
+  body { overflow: hidden; }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: 300px;
+    height: 100vh;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 199;
+  }
+  .sidebar-backdrop.open {
+    display: block;
+  }
+  .sidebar-toggle {
+    display: flex;
+    position: fixed;
+    top: 20rem;
+    left: 12px;
+    z-index: 198;
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 18px;
+  }
+}
+
+
+/* DESKTOP */
+@media (min-width: 769px) {
+  .sidebar-toggle { display: none; }
+  .sidebar-backdrop { display: none; }
+}
+
+
 </style>
 </head>
 <body>
-
+<button class="sidebar-toggle" id="sidebar-toggle">☰</button>
+<div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 <header>
   <div class="dot"></div>
   <div>
     <h1>Shitty Solar Power Estimator</h1>
-    <p>Solar position is based on <a href="https://docs.nlr.gov/docs/fy08osti/34302.pdf">NREL SPA Algorithm</a> (this is <b>not</b> live data). Computes the output of an array of solar panels based on effective irradiance. You can for example find out the optimal tilt for a specific date and time.</p>
+    <p>Solar position is based on <a href="https://docs.nlr.gov/docs/fy08osti/34302.pdf">NREL SPA Algorithm</a> (<b>not</b> live data).</p>
   </div>
 </header>
 

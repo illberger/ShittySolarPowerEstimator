@@ -1,4 +1,4 @@
-import { orientationFactor, spa, d2r, r2d } from './spa.js';
+import { orientationFactor, computePOA, spa, d2r, r2d } from './spa.js';
 import { optimizeAtIndex, optimizeDay } from './optimum.js'
 
 let earthGroup;
@@ -6,6 +6,14 @@ let marker, ring, arrowHelper, sunSphere, sunMat, corona, coronaMat;
 let sunLight, sunGlow;
 let renderer, scene, camera;
 let lastOptKey = null;
+let lastSunKey = null;
+
+function shouldSun(state){
+  const key = `${state.year}-${state.month}-${state.day}-${state.hour}`;
+  if (key === lastSunKey) return false;
+  lastSunKey = key;
+  return true;
+}
 
 function shouldRecompute(state) {
   const key = `${state.lat}-${state.lon}-${state.slope}-${state.panAzm}-${state.year}-${state.month}-${state.day}-${state.hour}`;
@@ -27,6 +35,24 @@ function sanitize(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+
+function initSidebarToggle() {
+  const toggle   = document.getElementById('sidebar-toggle');
+  const sidebar  = document.querySelector('.sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+
+  function open()  { sidebar.classList.add('open');  backdrop.classList.add('open');  }
+  function close() { sidebar.classList.remove('open'); backdrop.classList.remove('open'); }
+
+  toggle.addEventListener('click', () =>
+    sidebar.classList.contains('open') ? close() : open()
+  );
+  backdrop.addEventListener('click', close);
+  document.querySelectorAll('.location-result-item').forEach(el =>
+    el.addEventListener('click', close)
+  );
 }
 
 // #region geocode
@@ -271,7 +297,8 @@ function startRenderLoop(renderer, scene, camera, earthGroup) {
 /**
  * 3D helper
  */
-function latLonToVec3(lat, lon, r=1.02) {
+
+/*function latLonToVec3(lat, lon, r=1.02) {
   const phi = d2r(90-lat);
   const theta = d2r(lon+180);
   return new THREE.Vector3(
@@ -280,6 +307,18 @@ function latLonToVec3(lat, lon, r=1.02) {
     r*Math.sin(phi)*Math.sin(theta)
   );
 }
+  */
+ function latLonToVec3(lat, lon, r = 1.02) {
+  const phi = d2r(90 - lat);
+  const theta = d2r(lon);
+
+  return new THREE.Vector3(
+    r * Math.sin(phi) * Math.cos(theta),
+    r * Math.cos(phi),
+    r * Math.sin(phi) * Math.sin(theta)
+  );
+}
+ 
 
 /**
  * Main 3D entry point
@@ -386,7 +425,7 @@ function initGlobe() {
     if (!isDragging) return;
     orbitTheta -= (e.touches[0].clientX - prevMouse.x) * 0.005;
     orbitPhi   += (e.touches[0].clientY - prevMouse.y) * 0.005;
-    orbitPhi = Math.max(0.05, Math.min(PI - 0.05, orbitPhi));
+    orbitPhi = Math.max(0.05, Math.min(Math.PI - 0.05, orbitPhi));
     prevMouse = {x: e.touches[0].clientX, y: e.touches[0].clientY};
     updateCamera();
   }, {passive: true});
@@ -411,7 +450,7 @@ function initGlobe() {
   function animate() {
     requestAnimationFrame(animate);
     if (!isDragging && animFlag) {
-      orbitTheta += 0.001;
+      orbitTheta += 0.0007;
       updateCamera();
     } else {
     }
@@ -832,41 +871,31 @@ function frHrToHms(fh){
 }
 
 // #region power
+
+
 /**
  * Total array output at a given time
  */
-function computePower(res) {
-  const zenithRad = d2r(res.zenith);
-  const cosZ = Math.max(0.01, Math.cos(zenithRad));
-  const airMass = 1 / cosZ;
-  const GHI = 1000 * Math.exp(-0.14 * (airMass - 1));
-  const of = orientationFactor(res.azimuth, state.panAzm, res.zenith, state.slope);
-  const POA = GHI * of;
+function computePower(res, weather) {
+ 
+  const poa = computePOA(weather, res.incidence, state.slope, res.zenith);
   const systemEff = state.eff;
   
   let power;
   
   if (state.powerMode === 'stc') {
-    // branch 1: STC-based (using nominal power)
-    // Panel produces its rated power at 1000 W/m^2
-    const powerPerPanel = state.pnom * (POA / 1000) * systemEff;
+    const powerPerPanel = state.pnom * (poa / 1000) * systemEff;
     power = powerPerPanel * state.pcount;
   } else {
-    // branch 2: Area-based
-    // Calculate from panel area and efficiency
     const moduleEff = state.modEff;
     const panelArea = state.panelArea;
-    const powerPerPanel = POA * panelArea * moduleEff * systemEff;
+    const powerPerPanel = poa * panelArea * moduleEff * systemEff;
     power = powerPerPanel * state.pcount;
   }
   
-  return { 
-    power: Math.max(0, power), 
-    of,
-    poa: POA,
-    ghi: GHI,
-    mode: state.powerMode
-  };
+  const of = orientationFactor(res.azimuth, state.panAzm, res.zenith, state.slope);
+
+  return { power: Math.max(0, power), poa: poa, of: of};
 }
 
 function initPowerModeToggle() {
@@ -893,19 +922,20 @@ function initPowerModeToggle() {
 
 
 /**
- * TODO: Redundant
+ * FML
  */
 function runAll(){
   const dayData=[];
   for(let h=0;h<24;h++){
     const res=spa(state.year, state.month, state.day, h, 0, 0, state.tz, state.lat, 
-              state.lon, state.elev, state.pressure, state.temp, state.deltaT, 
-              state.deltaUt1, state.slope, state.panAzm, state.atmosRefract);
-    const { power, of } = computePower(res);
+              state.lon, state.elev, state.pressure, state.temp,
+              state.slope, state.panAzm, state.deltaT, 
+              state.deltaUt1, state.atmosRefract);
+    const { power, poa } = computePower(res, null);
+    // console.log('power hour', h, ':', power, 'poa:', poa);
     dayData.push({
     ...res,
     power,
-    orientationFactor: of
     });
   }
   lastDayData=dayData;
@@ -920,27 +950,43 @@ function runAll(){
   updateObsPosition();
 }
 
-let sp = new THREE.Vector3(0, 0, 0);
-let sunDist = 2.8;
-function updateSP(res) {
+function getObserverFrame(state) {
 
+  const obsPos = latLonToVec3(state.lat, state.lon, 1.0);
+
+  const up = obsPos.clone().normalize();
+
+  const east = new THREE.Vector3(
+    -Math.sin(d2r(state.lon)),
+    0,
+    Math.cos(d2r(state.lon))
+  ).normalize();
+
+  const north = new THREE.Vector3()
+    .crossVectors(up, east)
+    .normalize();
+
+  return { obsPos, up, east, north };
+}
+
+function updateSP(res) {
+  
   const ra  = d2r(res.alpha);
   const dec = d2r(res.delta);
-
-  const sunDir = new THREE.Vector3(
+  const sunDirECI = new THREE.Vector3(
     Math.cos(dec) * Math.cos(ra),
     Math.sin(dec),
     Math.cos(dec) * Math.sin(ra)
   ).normalize();
 
-  const sunPos = sunDir.multiplyScalar(2.8);
+  const sunPos = sunDirECI.multiplyScalar(2.8);
   sunSphere.position.copy(sunPos);
   corona.position.copy(sunPos);
-  corona.lookAt(0,0,0);
   sunLight.position.copy(sunPos);
   sunGlow.position.copy(sunPos);
+  const altRad = d2r(res.altitude);
+  const sunAlpha = THREE.MathUtils.clamp(Math.sin(altRad), 0, 1);
 
-  const sunAlpha = Math.max(0, Math.min(1, (res.altitude+5)/10));
   sunMat.opacity = sunAlpha;
   coronaMat.opacity = sunAlpha * 0.4;
 }
@@ -949,7 +995,7 @@ function updateSPUI(res, power, of) {
   document.getElementById('s-zenith').textContent=res.zenith.toFixed(1)+'°';
   document.getElementById('s-azimuth').textContent=res.azimuth.toFixed(1)+'°';
   document.getElementById('s-altitude').textContent=res.altitude.toFixed(1)+'°';
-  document.getElementById('s-factor').textContent=(of*100).toFixed(0)+'%';
+  document.getElementById('s-factor').textContent=("");
   document.getElementById('s-power').innerHTML=power.toFixed(0)+' <span class="stat-unit">W</span>';
   document.getElementById('ov-zenith').textContent=res.zenith.toFixed(2)+'°';
   document.getElementById('ov-azimuth').textContent=res.azimuth.toFixed(2)+'°';
@@ -963,53 +1009,45 @@ function updateSPUI(res, power, of) {
 function updateObsPosition() {
 
   const h = Math.floor(state.hour), m = Math.round((state.hour-h)*60);
-
-  const res = spa(state.year,state.month,state.day,h,m,0,state.tz,state.lat,state.lon,state.elev,state.pressure,state.temp,state.deltaT,state.deltaUt1,state.atmosRefract);
+  const res = spa(state.year,state.month,state.day,h,m,0,
+      state.tz,state.lat,state.lon,state.elev,state.pressure,
+      state.temp,state.slope, state.panAzm,
+      state.deltaT,state.deltaUt1,state.atmosRefract);
   if (autoOpt && shouldRecompute(state)) {
     const opt = optimizeAtIndex(lastDayData, h);
     state.slope = Math.min(Math.max(opt.optTilt, 0), 90);
     state.panAzm = Math.min(Math.max(opt.optAzm, 0), 360);
     syncPanelSliders();
   }
-  const { power, of } = computePower(res);
+  const { power, poa, of} = computePower(res, null);
 
-  // Observer local frame (shared by marker, panel arrow, and sun)
-  const pos = latLonToVec3(state.lat, state.lon, 1.0);
+  const pos = latLonToVec3(state.lat, state.lon);
   const up = pos.clone().normalize();
   const east = new THREE.Vector3(-Math.sin(d2r(state.lon)), 0, Math.cos(d2r(state.lon))).normalize();
   const north = new THREE.Vector3().crossVectors(up, east).normalize();
-
-  // Marker
   marker.position.copy(pos);
   ring.position.copy(pos);
   ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), up);
-
-  // Panel arrow
   const slopeRad = d2r(state.slope);
   const pAzmRad  = d2r(state.panAzm);
-  const pNorm = new THREE.Vector3(
-    Math.sin(slopeRad)*Math.sin(pAzmRad),
-    Math.cos(slopeRad),
-    Math.sin(slopeRad)*Math.cos(pAzmRad)
-  ).normalize();
   const panelDir = new THREE.Vector3()
-    .addScaledVector(north, pNorm.x)
-    .addScaledVector(up,    pNorm.y)
-    .addScaledVector(east,  pNorm.z)
+    .addScaledVector(north, Math.sin(slopeRad) * Math.cos(pAzmRad))
+    .addScaledVector(up,    Math.cos(slopeRad))
+    .addScaledVector(east,  Math.sin(slopeRad) * Math.sin(pAzmRad))
     .normalize();
+    
   arrowHelper.position.copy(pos);
   arrowHelper.setDirection(panelDir);
-  arrowHelper.setColor(new THREE.Color(of>0 ? 0x6c8fff : 0x444444));
-
-  updateSP(res);
+  arrowHelper.setColor(new THREE.Color(poa > 0 ? 0x6c8fff : 0x444444));
   updateEarthRotation(res);
+  updateSP(res);
   updateSPUI(res, power, of);
   drawChart(lastDayData);
 }
 
 function updateEarthRotation(res) {
-  const gst = d2r(res.nu);
-  earthGroup.rotation.set(0, -gst, 0);
+  const gst = d2r(res.nu); 
+  earthGroup.rotation.set(0, -gst, 0); 
 }
 
 function initDate() {
@@ -1024,16 +1062,15 @@ function initDate() {
   state.year = year;
   state.month = parseInt(month);
   state.day = parseInt(day);
+  document.getElementById('date-input').addEventListener('change', function(e) {
+    const parts = e.target.value.split('-');
+    state.date = e.target.value;
+    state.year = parseInt(parts[0]);
+    state.month = parseInt(parts[1]);
+    state.day = parseInt(parts[2]);
+    runAll();
+  });
 }
-
-document.getElementById('date-input').addEventListener('change', function(e) {
-  const parts = e.target.value.split('-');
-  state.date = e.target.value;
-  state.year = parseInt(parts[0]);
-  state.month = parseInt(parts[1]);
-  state.day = parseInt(parts[2]);
-  runAll();
-});
 
 
 /**
@@ -1046,7 +1083,6 @@ function initShittyOptimizer() {
     if (this.checked) {autoOpt = true;} else {autoOpt = false;}
     runAll();
   });
-  optAnim.dispatchEvent(new Event('change'));
 }
 
 function initShittyApp() {
@@ -1060,5 +1096,7 @@ function initShittyApp() {
   runAll();
   resizeChart();
   initShittyOptimizer();
+
+  initSidebarToggle();
 }
 initShittyApp();

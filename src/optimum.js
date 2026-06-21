@@ -1,33 +1,32 @@
 
-import { orientationFactor } from './spa.js' 
+import { computePOA, computeIncidence } from './spa.js' 
 
 /**
- * 
+ * Optimizing function
  * @param {*} mintBerryCrunch 
  * @returns 
  */
 function shablagoo(mintBerryCrunch) {
-  const tiltSteps = 19;
+  const tiltSteps = 18;
   const azmSteps = 36;
 
-  let bestTilt = 0, bestAzm = 0, bestPower = -1;
+  let bestTilt = 0, bestAzm = 180, bestPOA = -1;
 
-  for (let ti = 0; ti <= tiltSteps; ti++) {
-    for (let ai = 0; ai < azmSteps; ai++) {
-      const tilt = ti * (90 / tiltSteps);
-      const azm  = ai * (360 / azmSteps);
-
-      const of = orientationFactor(
-        mintBerryCrunch.azimuth,
-        azm,
-        mintBerryCrunch.zenith,
-        tilt
+  for (let i = 0; i <= tiltSteps; i++) {
+    for (let j = 0; j < azmSteps; j++) {
+      const tilt = i * (90 / tiltSteps);
+      const azm  = j * (360 / azmSteps);
+      const incidenceDeg = computeIncidence(mintBerryCrunch.zenith, mintBerryCrunch.azimuth, tilt, azm);
+      const poa = computePOA(null,
+        incidenceDeg,
+        tilt,
+        mintBerryCrunch.zenith
       );
 
-      if (of > bestPower) {
-        bestPower = of;
+      if (poa > bestPOA) {
+        bestPOA  = poa;
         bestTilt = tilt;
-        bestAzm = azm;
+        bestAzm  = azm;
       }
     }
   }

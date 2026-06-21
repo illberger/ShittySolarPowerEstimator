@@ -74,7 +74,16 @@ function julianDay(yr,mo,dy,hr,mn,sc,dut1,tz){
   return jd;
 }
 
-export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,temp,deltaT,deltaUt1,atmosRefract){
+export function computeIncidence(zenithDeg, sunAzmDeg, panelTiltDeg, panelAzmDeg) {
+  const zenithRad = d2r(zenithDeg);
+  const tiltRad = d2r(panelTiltDeg);
+  const azmDiff = d2r(sunAzmDeg - panelAzmDeg);
+  const cosInc = Math.cos(zenithRad) * Math.cos(tiltRad)
+               + Math.sin(zenithRad) * Math.sin(tiltRad) * Math.cos(azmDiff);
+  return r2d(Math.acos(Math.max(-1, Math.min(1, cosInc))));
+}
+
+export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,temp,slope,azmRot,deltaT,deltaUt1,atmosRefract){
   const jd=julianDay(year,month,day,hour,minute,second,deltaUt1,tz);
   const jc=(jd-2451545)/36525;
   const jde=jd+deltaT/86400;
@@ -144,6 +153,7 @@ export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,t
   const azimuthAstro=limitDeg(r2d(Math.atan2(Math.sin(HPrimeR),Math.cos(HPrimeR)*Math.sin(latR)-Math.tan(deltaPrimeR)*Math.cos(latR))));
   const azimuth=limitDeg(azimuthAstro+180);
 
+  const incidence = computeIncidence(zenith, azimuth, slope, azmRot);
 
   // RTS
   let sunrise=-99999,sunset=-99999,suntransit=-99999;
@@ -227,12 +237,50 @@ export function spa(year,month,day,hour,minute,second,tz,lat,lon,elev,pressure,t
     sunset=dayFracToLocalHr(sunRiseSet(2),tz);
   }
 
-  return {zenith,azimuth,altitude:e,sunrise,sunset,suntransit,eot,jd,R,alpha,delta,H,nu};
+  return {zenith,azimuth,altitude:e,incidence,sunrise,sunset,suntransit,eot,jd,R,alpha,delta,H,nu};
+}
+
+
+/**
+ * 
+ * @param {*} weather
+ * @param {*} incidenceDeg
+ * @param {*} tiltDeg
+ * @param {*} zenithDeg
+ * @returns 
+ */
+export function computePOA(weather, incidenceDeg, tiltDeg, zenithDeg) {
+  const tiltRad = d2r(tiltDeg);
+  const incidenceRad = d2r(incidenceDeg);
+  const cosInc = Math.max(0, Math.cos(incidenceRad));
+
+  // TODO: maybe in the future
+  if (weather) {
+    const { dni, dhi, ghi } = weather;
+    const beam      = dni * cosInc;
+    const diffuse   = dhi * (1 + Math.cos(tiltRad)) / 2;
+    const reflected = ghi * 0.2 * (1 - Math.cos(tiltRad)) / 2;
+    return Math.max(0, beam + diffuse + reflected);
+  } else {
+    // idfk
+    if (zenithDeg >= 90) return 0;
+    const cosZ = Math.max(0.01, Math.cos(d2r(zenithDeg)));
+    const airMass = 1 / cosZ;
+    const m = Math.min(airMass, 10);
+    const ghi_est = 1000 * Math.exp(-0.18 * (m - 1));
+    const dni_est = ghi_est * 0.85;
+    const dhi_est = ghi_est * 0.15;
+    const beam = Math.max(0, dni_est) * cosInc;
+    const diffuse = dhi_est * (1 + Math.cos(tiltRad)) / 2;
+    const reflected = ghi_est * 0.2 * (1 - Math.cos(tiltRad)) / 2;
+    return Math.max(0, beam + diffuse + reflected);
+  }
 }
 
 
 /** 
  * Simplification irradiance estimation.
+ * @deprecated
  */
 export function orientationFactor(sunAzimuth,roofAzimuth,sunZenith,panelSlope){
   if(sunZenith>90)return 0;
