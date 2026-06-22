@@ -2,7 +2,7 @@ import { orientationFactor, computePOA, spa, d2r, r2d } from './spa.js';
 import { optimizeAtIndex, optimizeDay } from './optimum.js'
 
 let earthGroup;
-let marker, ring, arrowHelper, sunSphere, sunMat, corona, coronaMat;
+let marker, ring, arrowHelper, sunSphere, globe, sunMat, corona, coronaMat, stockholm, helsinki;
 let sunLight, sunGlow;
 let renderer, scene, camera;
 let lastOptKey = null;
@@ -37,6 +37,16 @@ function sanitize(str) {
   return div.innerHTML;
 }
 
+function latLonToVec3(lat, lon, r = 1.02) {
+  const phi = d2r(90 - lat);
+  const theta = d2r(-lon);
+
+  return new THREE.Vector3(
+    r * Math.sin(phi) * Math.cos(theta),
+    r * Math.cos(phi),
+    r * Math.sin(phi) * Math.sin(theta)
+  );
+}
 
 function initSidebarToggle() {
   const toggle   = document.getElementById('sidebar-toggle');
@@ -149,94 +159,14 @@ function setLocation(lat, lon) {
 
 // #region 3D Scene
 
-/*
-function initRenderer() {
-  const container = document.getElementById('globe-container');
-  const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
-  renderer.setPixelRatio(window.devicePixelRatio);
-  container.appendChild(renderer.domElement);
-  return {renderer, container};
-}
-
-function initScene() {
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-  camera.position.set(0, 0, 3);
-  return {scene, camera};
-}
-
-function initEarth(scene) {
-  const earthGroup = new THREE.Group();
-  scene.add(earthGroup);
-  const texCanvas = document.createElement('canvas');
-  texCanvas.width = 1024; texCanvas.height = 512;
-  const tc = texCanvas.getContext('2d');
-  tc.fillStyle = '#0d2b4e';
-  tc.fillRect(0, 0, 1024, 512);
-  tc.strokeStyle = 'rgba(100,150,255,0.08)';
-  tc.lineWidth = 1;
-  for(let i=0;i<12;i++){const x=i/12*1024;tc.beginPath();tc.moveTo(x,0);tc.lineTo(x,512);tc.stroke();}
-  for(let i=0;i<6;i++){const y=i/6*512;tc.beginPath();tc.moveTo(0,y);tc.lineTo(1024,y);tc.stroke();}
-
-  const globeMat = new THREE.MeshPhongMaterial({
-    map: new THREE.CanvasTexture(texCanvas),
-    shininess: 15,
-    specular: new THREE.Color(0x112244)
-  });
-  const globe = new THREE.Mesh(new THREE.SphereGeometry(1,64,64), globeMat);
-  earthGroup.add(globe);
-  const atmMat = new THREE.MeshPhongMaterial({color:0x3366ff,transparent:true,opacity:0.06,side:THREE.FrontSide});
-  earthGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1.03,32,32), atmMat));
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.025,12,12),
-    new THREE.MeshBasicMaterial({color:0xff4444})
-  );
-  earthGroup.add(marker);
-
-
-
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.04,0.006,8,32),
-    new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:0.7})
-  );
-  earthGroup.add(ring);
-  const arrowHelper = new THREE.ArrowHelper(
-    new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0),
-    0.4, 0x6c8fff, 0.08, 0.06
-  );
-  earthGroup.add(arrowHelper);
-
-  return {earthGroup, globe, marker, ring, arrowHelper};
-}
-
-function initLights(scene) {
-  scene.add(new THREE.AmbientLight(0x334466, 1));
-  const sunLight = new THREE.DirectionalLight(0xffffff, 1.4);
-  const sunGlow = new THREE.DirectionalLight(0xffdd88, 0.3);
-  scene.add(sunLight);
-  scene.add(sunGlow);
-  return {sunLight, sunGlow};
-}
-
-function initSun(scene) {
-  const sunMat = new THREE.MeshBasicMaterial({color:0xffdd44});
-  const sunSphere = new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16), sunMat);
-  const coronaMat = new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.4});
-  const corona = new THREE.Mesh(new THREE.TorusGeometry(0.14,0.02,8,32), coronaMat);
-  scene.add(sunSphere);
-  scene.add(corona);
-  return {sunSphere, sunMat, corona, coronaMat};
-}
-*/
-
 async function loadCountries() {
   try {
     const r = await fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson');
     const geo = await r.json();
     const mat = new THREE.LineBasicMaterial({color:0x4488aa,transparent:false,opacity:0.3});
-    geo.features.forEach(feature=>{
-      const geom=feature.geometry;
-      const polys=geom.type==='Polygon'?[geom.coordinates]:geom.coordinates;
+    geo.features.forEach(feature=>{  // root field
+      const geom=feature.geometry;  // {blabla:..., coordinates:{[],[],[]}... }
+      const polys=geom.type==='Polygon'?[geom.coordinates]:geom.coordinates; // {[],[],[]}
       polys.forEach(poly=>{
         poly.forEach(ring=>{
           const points=ring.map(([lon,lat])=>latLonToVec3(lat,lon,1.002));
@@ -247,76 +177,6 @@ async function loadCountries() {
   } catch(e) {
     console.warn('Failed to load country borders:', e);
   }
-}
-
-/*
-function initGlobeDrag(renderer) {
-  renderer.domElement.addEventListener('mousedown', e=>{isDragging=true;prevMouse={x:e.clientX,y:e.clientY};});
-  renderer.domElement.addEventListener('mousemove', e=>{
-    if(!isDragging) return;
-    rotY += (e.clientX-prevMouse.x)*0.005;
-    rotX += (e.clientY-prevMouse.y)*0.005;
-    rotX = Math.max(-PI/2, Math.min(PI/2, rotX));
-    prevMouse = {x:e.clientX, y:e.clientY};
-  });
-  renderer.domElement.addEventListener('mouseup', ()=>isDragging=false);
-  renderer.domElement.addEventListener('mouseleave', ()=>isDragging=false);
-  renderer.domElement.addEventListener('touchstart', e=>{isDragging=true;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};},{passive:true});
-  renderer.domElement.addEventListener('touchmove', e=>{
-    if(!isDragging) return;
-    rotY += (e.touches[0].clientX-prevMouse.x)*0.005;
-    rotX += (e.touches[0].clientY-prevMouse.y)*0.005;
-    rotX = Math.max(-PI/2, Math.min(PI/2, rotX));
-    prevMouse = {x:e.touches[0].clientX, y:e.touches[0].clientY};
-  },{passive:true});
-  renderer.domElement.addEventListener('touchend', ()=>isDragging=false);
-}
-
-function initResizeHandler(container, renderer, camera) {
-  const resize = () => {
-    const w=container.clientWidth, h=container.clientHeight;
-    renderer.setSize(w,h);
-    camera.aspect=w/h;
-    camera.updateProjectionMatrix();
-  };
-  resize();
-  window.addEventListener('resize', resize);
-}
-
-function startRenderLoop(renderer, scene, camera, earthGroup) {
-  function animate() {
-    requestAnimationFrame(animate);
-    if(!isDragging) rotY += 0.001;
-    earthGroup.rotation.set(rotX, rotY, 0);
-    renderer.render(scene, camera);
-  }
-  animate();
-}
-*/
-
-/**
- * 3D helper
- */
-
-/*function latLonToVec3(lat, lon, r=1.02) {
-  const phi = d2r(90-lat);
-  const theta = d2r(lon+180);
-  return new THREE.Vector3(
-    -r*Math.sin(phi)*Math.cos(theta),
-    r*Math.cos(phi),
-    r*Math.sin(phi)*Math.sin(theta)
-  );
-}
-  */
- function latLonToVec3(lat, lon, r = 1.02) {
-  const phi = d2r(90 - lat);
-  const theta = d2r(lon);
-
-  return new THREE.Vector3(
-    r * Math.sin(phi) * Math.cos(theta),
-    r * Math.cos(phi),
-    r * Math.sin(phi) * Math.sin(theta)
-  );
 }
  
 
@@ -330,7 +190,7 @@ function initGlobe() {
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   camera.position.set(0, 0, 3);
 
   earthGroup = new THREE.Group();
@@ -345,7 +205,7 @@ function initGlobe() {
   for(let i=0;i<12;i++){const x=i/12*1024;tc.beginPath();tc.moveTo(x,0);tc.lineTo(x,512);tc.stroke();}
   for(let i=0;i<6;i++){const y=i/6*512;tc.beginPath();tc.moveTo(0,y);tc.lineTo(1024,y);tc.stroke();}
 
-  const globe = new THREE.Mesh(
+  globe = new THREE.Mesh(
     new THREE.SphereGeometry(1,64,64),
     new THREE.MeshPhongMaterial({map:new THREE.CanvasTexture(texCanvas),shininess:15,specular:new THREE.Color(0x112244)})
   );
@@ -368,6 +228,7 @@ function initGlobe() {
   scene.add(sunLight);
   scene.add(sunGlow);
 
+  
   sunMat = new THREE.MeshBasicMaterial({color:0xffdd44});
   sunSphere = new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16), sunMat);
   coronaMat = new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.4});
@@ -375,7 +236,17 @@ function initGlobe() {
   scene.add(sunSphere);
   scene.add(corona);
 
-  // #region Drag mechanics
+  stockholm = new THREE.Mesh(
+    new THREE.SphereGeometry(0.005, 5, 5),
+    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+  );
+  helsinki = new THREE.Mesh(
+    new THREE.SphereGeometry(0.005, 5, 5),
+    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+  );
+  earthGroup.add(stockholm, helsinki);
+
+  // #region controls
   let orbitTheta = 0;
   let orbitPhi = 0.3;
   let isDragging = false;
@@ -651,7 +522,6 @@ function bindSlider(id, key, display, fmt, init=true) {
         autoOpt = false;
       }
     }
-
     state[key] = parseFloat(sl.value);
     if (dp) dp.textContent = fmt(state[key]);
     runAll();
@@ -971,7 +841,7 @@ function getObserverFrame(state) {
 
 function updateSP(res) {
   
-  const ra  = d2r(res.alpha);
+  const ra  = -d2r(res.alpha);
   const dec = d2r(res.delta);
   const sunDirECI = new THREE.Vector3(
     Math.cos(dec) * Math.cos(ra),
@@ -1002,10 +872,6 @@ function updateSPUI(res, power, of) {
   document.getElementById('ov-altitude').textContent=res.altitude.toFixed(2)+'°';
 }
 
-/**
- * Updates observer position AND local solar position (UI).
- *
- */
 function updateObsPosition() {
 
   const h = Math.floor(state.hour), m = Math.round((state.hour-h)*60);
@@ -1047,7 +913,7 @@ function updateObsPosition() {
 
 function updateEarthRotation(res) {
   const gst = d2r(res.nu); 
-  earthGroup.rotation.set(0, -gst, 0); 
+  earthGroup.rotation.set(0, +gst, 0); 
 }
 
 function initDate() {
@@ -1083,6 +949,38 @@ function initShittyOptimizer() {
     if (this.checked) {autoOpt = true;} else {autoOpt = false;}
     runAll();
   });
+}
+
+
+function testShittyCoordinateSystem() {
+  function latLonToVec3Geo(lat, lon, r = 1.02) {
+    const phi = d2r(90 - lat);
+    const theta = d2r(lon);
+
+    return new THREE.Vector3(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.cos(phi),
+      r * Math.sin(phi) * Math.sin(theta)
+    );
+  }
+  stockholm.position.copy(latLonToVec3(59.32, 18.05));
+  helsinki.position.copy(latLonToVec3(60.16, 24.93));
+}
+
+function test() {
+  const markerWorld = new THREE.Vector3();
+  marker.getWorldPosition(markerWorld);
+  const sunWorld = new THREE.Vector3();
+  sunSphere.getWorldPosition(sunWorld);
+  const dir = sunWorld.clone().sub(markerWorld).normalize();
+  const raycaster = new THREE.Raycaster(
+    markerWorld,
+    dir,
+    0,
+    markerWorld.distanceTo(sunWorld)
+  );
+  const hits = raycaster.intersectObject(globe, true);
+  console.log(hits.length ? "Earth blocks sun" : "Sun visible");
 }
 
 function initShittyApp() {
