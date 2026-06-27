@@ -1006,10 +1006,6 @@ function updateSP(res) {
 }
 
 function updateSPUI(res, power, of) {
-  document.getElementById('s-zenith').textContent=res.zenith.toFixed(1)+'°';
-  document.getElementById('s-azimuth').textContent=res.azimuth.toFixed(1)+'°';
-  document.getElementById('s-altitude').textContent=res.altitude.toFixed(1)+'°';
-  document.getElementById('s-factor').textContent=("");
   document.getElementById('s-power').innerHTML=power.toFixed(0)+' <span class="stat-unit">W</span>';
   document.getElementById('ov-zenith').textContent=res.zenith.toFixed(2)+'°';
   document.getElementById('ov-azimuth').textContent=res.azimuth.toFixed(2)+'°';
@@ -1035,7 +1031,7 @@ function setLatLon(lat=null, lon=null) {
   }
   state.lat = _lat;
   state.lon = _lon;
-  //console.log("Set lat to: ", state.lat, ".\nSet lon to: ", state.lon);
+  invalidateWeather();
 }
 
 function updateWeatherUI(state, weatherReady) {
