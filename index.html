@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <meta http-equiv="Content-Security-Policy" 
       content="default-src 'self'; 
                script-src 'self' https://cdnjs.cloudflare.com; 
                style-src 'unsafe-inline'; 
                img-src data:; 
-               connect-src https://nominatim.openstreetmap.org https://raw.githubusercontent.com/nvkelso/natural-earth-vector/;">
+               connect-src https://nominatim.openstreetmap.org https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ https://api.open-meteo.com/v1/ https://archive-api.open-meteo.com/v1/;">
 <title>Shitty Solar Power Estimator</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  :root {
+    --sidebar-scale: 1;
+  }
   :root {
     --bg: #0a0a0f;
     --bg2: #111118;
@@ -264,13 +264,13 @@
   .stat.green .stat-value { color: var(--success); }
 
   .run-btn {
-    width: 100%;
+    width: auto;
     background: var(--accent);
     color: #fff;
     border: none;
     border-radius: var(--radius);
     padding: 10px;
-    font-size: 13px;
+    font-size: 10px;
     font-weight: 600;
     cursor: pointer;
     font-family: var(--font);
@@ -344,9 +344,9 @@
     pointer-events: none;
   }
   .sun-overlay .row:has(input[type="checkbox"]) {
-  pointer-events: auto;
-  cursor: pointer;
-  }
+    pointer-events: auto;
+    cursor: pointer;
+    }
   .sun-overlay .row {
     display: flex;
     justify-content: space-between;
@@ -459,20 +459,160 @@
     animation: spin 1s linear infinite;
   }
 
+  .sidebar {
+    padding: calc(20px * var(--sidebar-scale));
+    gap: calc(20px * var(--sidebar-scale));
+  }
+
+  .section-label {
+    font-size: calc(10px * var(--sidebar-scale));
+    margin-bottom: calc(10px * var(--sidebar-scale));
+  }
+
+  .field {
+    margin-bottom: calc(12px * var(--sidebar-scale));
+  }
+
+  .field label {
+    font-size: calc(12px * var(--sidebar-scale));
+    margin-bottom: calc(5px * var(--sidebar-scale));
+  }
+
+  input[type="text"],
+  input[type="number"],
+  input[type="date"] {
+    padding: calc(7px * var(--sidebar-scale))
+            calc(10px * var(--sidebar-scale));
+    font-size: calc(13px * var(--sidebar-scale));
+  }
+
+  input[type="range"] {
+    height: calc(4px * var(--sidebar-scale));
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: calc(14px * var(--sidebar-scale));
+    height: calc(14px * var(--sidebar-scale));
+  }
+
+  .card {
+    padding: calc(14px * var(--sidebar-scale));
+  }
+
+  .stat {
+    padding: calc(10px * var(--sidebar-scale))
+            calc(12px * var(--sidebar-scale));
+  }
+
+  .stat-label {
+    font-size: calc(10px * var(--sidebar-scale));
+  }
+
+  .stat-value {
+    font-size: calc(18px * var(--sidebar-scale));
+  }
+
+  .stat-unit {
+    font-size: calc(11px * var(--sidebar-scale));
+  }
+
+  .run-btn {
+    padding: calc(10px * var(--sidebar-scale));
+    font-size: calc(10px * var(--sidebar-scale));
+  }
+
+  .location-result-item {
+    padding: calc(9px * var(--sidebar-scale))
+            calc(12px * var(--sidebar-scale));
+    font-size: calc(12px * var(--sidebar-scale));
+  }
+
+  .location-result-item .coords {
+    font-size: calc(11px * var(--sidebar-scale));
+  }
+
+  .tab-btn {
+    padding: calc(4px * var(--sidebar-scale))
+            calc(10px * var(--sidebar-scale));
+    font-size: calc(9px * var(--sidebar-scale));
+  }
+
+
   @keyframes spin { to { transform: rotate(360deg); } }
 
 
-/* MOBILE */
+/* fuck this */
 @media (max-width: 768px) {
-  body { overflow: hidden; }
+  :root { --sidebar-scale: 0.60; }
+
+  .tooltip-text {
+    max-width: calc(250px * var(--sidebar-scale, 1));
+  }
+  html, body {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+  body { display: block; }
+
+  .layout {
+    display: block;
+    min-height: 0;
+  }
+
+  .main {
+    display: block;
+  }
+
+  #globe-container {
+    height: 60vh;
+    min-height: 320px;
+  }
+
+  .chart-panel {
+    height: 200px;
+  }
 
   .layout {
     grid-template-columns: 1fr;
   }
+  .sun-overlay .pill {
+      margin-left: auto;
+      padding: 1px 4px;
+      font-size: calc(10px * var(--sidebar-scale, 1));
+  }
+  .sun-overlay .val {
+    margin-left: auto;
+  }
+  .sun-overlay {
+    top: 5px;
+    right: 4px;
+    font-size: calc(10px * var(--sidebar-scale, 1));
+    max-width: calc(40vw - 8px); 
+    width: fit-content;
+    height: fit-content;
+    display: inline-block;
+  }
+  .sun-overlay input[type="checkbox"] {
+    width: calc(15px * var(--sidebar-scale));
+    height: calc(15px * var(--sidebar-scale));
+    margin: 0;
+    flex-shrink: 0;
+  }
+  .sun-overlay .row {
+    display: flex;
+    align-items: center;
+    gap: calc(20px * var(--sidebar-scale));
+    justify-content: flex-start;
+    margin-bottom: 2px;
+  }
+  .section-label {
+    display: flex;
+  }
   .sidebar {
     position: fixed;
     top: 0; left: 0;
-    width: 300px;
+    width: 250px;
     height: 100vh;
     z-index: 200;
     transform: translateX(-100%);
@@ -525,7 +665,7 @@
   <div class="dot"></div>
   <div>
     <h1>Shitty Solar Power Estimator</h1>
-    <p>Solar position is based on <a href="https://docs.nlr.gov/docs/fy08osti/34302.pdf">NREL SPA Algorithm</a> (<b>not</b> live data).</p>
+    <p>Solar position is based on <a href="https://docs.nlr.gov/docs/fy08osti/34302.pdf">NREL SPA.</a></p>
   </div>
 </header>
 
@@ -535,17 +675,17 @@
     <div>
       <div class="section-label">Location</div>
       <div class="field location-search">
-        <input type="text" id="location-search" placeholder="Search city or enter coordinates…" autocomplete="off">
+        <input type="text" id="location-search" placeholder="Search city..." autocomplete="off">
         <div class="location-results" id="location-results"></div>
       </div>
       <div class="row2">
         <div class="field">
           <label> <span id="lat-display">57.71°</span></label>
-          <input type="range" id="lat-slider" min="-90" max="90" step="0.001" value="57.71">
+          <input type="range" id="lat-slider" min="-90" max="90" step="0.0000001" value="57.71">
         </div>
         <div class="field">
           <label>Longitude <span id="lon-display">11.97°</span></label>
-          <input type="range" id="lon-slider" min="-180" max="180" step="0.001" value="11.97">
+          <input type="range" id="lon-slider" min="-180" max="180" step="0.0000001" value="11.97">
         </div>
       </div>
       <div class="row2">
@@ -585,6 +725,20 @@
 
     <div>
       <div class="section-label">Panel Configuration</div>
+      <div class="field">
+        <label>
+          <span>Live weather</span>
+          <span class="tooltip-trigger">?
+            <span class="tooltip-text">
+              Fetches hourly irradiance, temperature, pressure and cloud cover from Open-Meteo 
+              for the current location and date (historical or forecasts). Power estimates will use atmospheric data 
+              instead of clear-sky model. Re-fetch after changing location or date.
+            </span>
+          </span>
+        </label>
+        <button id="weather-btn" class="run-btn" ...>Adjust by weather</button>
+        <div id="weather-btn-error" ...></div>
+      </div>
 
       <div class="field" style="margin-bottom:16px;">
         <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
@@ -720,6 +874,7 @@
         <div class="row"><span class="lbl">Zenith</span><span class="val" id="ov-zenith">—</span></div>
         <div class="row"><span class="lbl">Azimuth</span><span class="val" id="ov-azimuth">—</span></div>
         <div class="row"><span class="lbl">Altitude</span><span class="val" id="ov-altitude">—</span></div>
+        <div class="row"><span class="lbl" id="weather-indicator">Clear-sky model</span></div>
         <div class="row"><input type="checkbox" id="ov-rotates" name="ov-rotates" checked/>Auto-rotate</div>
         <div class="row"><input type="checkbox" id="ov-opt" name="ov-opt" checked/>Auto-optimize</div>
       </div>

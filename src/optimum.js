@@ -17,7 +17,7 @@ function shablagoo(mintBerryCrunch) {
       const tilt = i * (90 / tiltSteps);
       const azm  = j * (360 / azmSteps);
       const incidenceDeg = computeIncidence(mintBerryCrunch.zenith, mintBerryCrunch.azimuth, tilt, azm);
-      const poa = computePOA(null,
+      const poa = computePOA(mintBerryCrunch.weather,
         incidenceDeg,
         tilt,
         mintBerryCrunch.zenith

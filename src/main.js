@@ -1,12 +1,18 @@
 import { orientationFactor, computePOA, spa, d2r, r2d } from './spa.js';
-import { optimizeAtIndex, optimizeDay } from './optimum.js'
+import { optimizeAtIndex, optimizeDay } from './optimum.js';
+import { initWeatherButton, getWeather, invalidateWeather, makeDateStr } from './weather.js'
 
 let earthGroup;
 let marker, ring, arrowHelper, sunSphere, globe, sunMat, corona, coronaMat, stockholm, helsinki;
 let sunLight, sunGlow;
 let renderer, scene, camera;
+let cloudTexture, cloudCanvas, cloudCtx;
 let lastOptKey = null;
 let lastSunKey = null;
+
+let touchMode = null; // 'rotate' || 'zoom'
+let lastTouchDist = 0;
+
 
 function shouldSun(state){
   const key = `${state.year}-${state.month}-${state.day}-${state.hour}`;
@@ -152,8 +158,7 @@ function setLocation(lat, lon) {
   document.getElementById('lon-slider').value = lon;
   document.getElementById('lat-display').textContent = lat.toFixed(2) + '°';
   document.getElementById('lon-display').textContent = lon.toFixed(2) + '°';
-  state.lat = lat;
-  state.lon = lon;
+  setLatLon(lat, lon);
 }
 // #endregion
 
@@ -178,7 +183,45 @@ async function loadCountries() {
     console.warn('Failed to load country borders:', e);
   }
 }
- 
+
+// #region CLOUD
+/*
+function updateCloudTexture(localHour, utcOffset) {
+  const w = cloudCanvas.width;
+  const h = cloudCanvas.height;
+  cloudCtx.clearRect(0, 0, w, h);
+
+  // Fuck this
+  // const clouds = getCloudState(localHour, utcOffset);
+  console.log(clouds);
+  if (!clouds.length) { cloudTexture.needsUpdate = true; return; }
+
+  const spreadDeg = GRID_RES * 3.0;
+  const spreadX = (spreadDeg / 360) * w;
+  const spreadY = (spreadDeg / 180) * h;
+
+  for (const c of clouds) {
+    const alpha = (c.cloud ?? 0) / 100;
+    if (alpha <= 0.01) continue;
+
+    const cx = ((c.lon + 180) / 360) * w;
+    const cy = ((90 - c.lat) / 180) * h;
+
+    const grad = cloudCtx.createRadialGradient(cx, cy, 0, cx, cy, spreadX);
+    grad.addColorStop(0,   `rgba(255, 255, 255, ${alpha})`);
+    grad.addColorStop(0.6, `rgba(255, 255, 255, ${alpha * 0.5})`);
+    grad.addColorStop(1,   `rgba(255, 255, 255, 0)`);
+
+    cloudCtx.fillStyle = grad;
+    cloudCtx.beginPath();
+    cloudCtx.ellipse(cx, cy, spreadX, spreadY, 0, 0, Math.PI * 2);
+    cloudCtx.fill();
+  }
+
+  cloudTexture.needsUpdate = true;
+}
+  */
+// #endregion
 
 /**
  * Main 3D entry point
@@ -190,7 +233,7 @@ function initGlobe() {
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
   camera.position.set(0, 0, 3);
 
   earthGroup = new THREE.Group();
@@ -206,7 +249,7 @@ function initGlobe() {
   for(let i=0;i<6;i++){const y=i/6*512;tc.beginPath();tc.moveTo(0,y);tc.lineTo(1024,y);tc.stroke();}
 
   globe = new THREE.Mesh(
-    new THREE.SphereGeometry(1,64,64),
+    new THREE.SphereGeometry(1.0,64,64), // 1
     new THREE.MeshPhongMaterial({map:new THREE.CanvasTexture(texCanvas),shininess:15,specular:new THREE.Color(0x112244)})
   );
   earthGroup.add(globe);
@@ -215,8 +258,8 @@ function initGlobe() {
     new THREE.MeshPhongMaterial({color:0x3366ff,transparent:true,opacity:0.06,side:THREE.FrontSide})
   ));
 
-  marker = new THREE.Mesh(new THREE.SphereGeometry(0.025,12,12), new THREE.MeshBasicMaterial({color:0xff4444}));
-  ring = new THREE.Mesh(new THREE.TorusGeometry(0.04,0.006,8,32), new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:0.7}));
+  marker = new THREE.Mesh(new THREE.SphereGeometry(0.015,12,12), new THREE.MeshBasicMaterial({color:0xff4444}));
+  ring = new THREE.Mesh(new THREE.TorusGeometry(0.03,0.006,8,32), new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:0.7}));
   arrowHelper = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), 0.4, 0x6c8fff, 0.08, 0.06);
   earthGroup.add(marker);
   earthGroup.add(ring);
@@ -228,6 +271,31 @@ function initGlobe() {
   scene.add(sunLight);
   scene.add(sunGlow);
 
+  // #region cloudShiet
+  /*
+  cloudCanvas = document.createElement('canvas');
+  cloudCanvas.width = 1024;
+  cloudCanvas.height = 512;
+  cloudCtx = cloudCanvas.getContext('2d');
+  cloudCtx.fillStyle = "rgba(255,255,255,0.2)";
+  cloudCtx.fillRect(0, 0, 1024, 512);
+  cloudTexture = new THREE.CanvasTexture(cloudCanvas);
+  cloudTexture.needsUpdate = true;
+  const cloudMat = new THREE.MeshStandardMaterial({
+    map: cloudTexture,
+    transparent: true,
+    opacity: 1.0,
+    depthWrite: false,
+    roughness: 1.0,
+    metalness: 0.0,
+  });
+  const cloudMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(1.1, 64, 64),
+    cloudMat
+  );
+  earthGroup.add(cloudMesh);
+  */
+  // #endregion cloudShiet
   
   sunMat = new THREE.MeshBasicMaterial({color:0xffdd44});
   sunSphere = new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16), sunMat);
@@ -254,7 +322,7 @@ function initGlobe() {
   let orbitRadius = 3;
 
   // ZOOM CONSTANTS
-  const MIN_RADIUS = 2;
+  const MIN_RADIUS = 1.5;
   const MAX_RADIUS = 8;
 
   function updateCamera() {
@@ -265,42 +333,116 @@ function initGlobe() {
     );
     camera.lookAt(0, 0, 0);
   }
+
+  function bindGlobeControls(renderer, {
+  updateCamera,
+  MIN_RADIUS,
+  MAX_RADIUS
+  }) {
+
+    let prevMouse = { x: 0, y: 0 };
+    let isDragging = false;
+
+    function getTouchDist(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    renderer.domElement.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      prevMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    renderer.domElement.addEventListener('mousemove', (e) => {
+      if (!isDragging || touchMode) return;
+
+      orbitTheta -= (e.clientX - prevMouse.x) * 0.005;
+      orbitPhi   += (e.clientY - prevMouse.y) * 0.005;
+
+      orbitPhi = Math.max(0.05, Math.min(Math.PI - 0.05, orbitPhi));
+
+      prevMouse = { x: e.clientX, y: e.clientY };
+      updateCamera();
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    renderer.domElement.addEventListener('wheel', (e) => {
+      e.preventDefault();
+
+      orbitRadius += e.deltaY * 0.005;
+      orbitRadius = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, orbitRadius));
+
+      updateCamera();
+    }, { passive: false });
+
+    renderer.domElement.addEventListener('touchstart', (e) => {
+
+      if (e.touches.length === 1) {
+        touchMode = 'rotate';
+        isDragging = true;
+
+        prevMouse = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY
+        };
+      }
+
+      if (e.touches.length === 2) {
+        touchMode = 'zoom';
+        isDragging = false;
+
+        lastTouchDist = getTouchDist(e.touches);
+      }
+
+    }, { passive: true });
+    renderer.domElement.addEventListener('touchmove', (e) => {
+
+      // ROTATE
+      if (touchMode === 'rotate' && e.touches.length === 1) {
+
+        orbitTheta -= (e.touches[0].clientX - prevMouse.x) * 0.005;
+        orbitPhi   += (e.touches[0].clientY - prevMouse.y) * 0.005;
+
+        orbitPhi = Math.max(0.05, Math.min(Math.PI - 0.05, orbitPhi));
+
+        prevMouse = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY
+        };
+
+        updateCamera();
+      }
+      if (touchMode === 'zoom' && e.touches.length === 2) {
+
+        const dist = getTouchDist(e.touches);
+        const delta = dist - lastTouchDist;
+
+        orbitRadius -= delta * 0.01;
+        orbitRadius = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, orbitRadius));
+
+        lastTouchDist = dist;
+        updateCamera();
+      }
+
+      e.preventDefault();
+
+    }, { passive: false });
+    renderer.domElement.addEventListener('touchend', () => {
+      isDragging = false;
+      touchMode = null;
+    });
+  }
+
+  bindGlobeControls(renderer, {
+    updateCamera,
+    MIN_RADIUS,
+    MAX_RADIUS
+  });
   updateCamera();
-
-  renderer.domElement.addEventListener('wheel', e => {
-    e.preventDefault();
-    orbitRadius += e.deltaY * 0.005;
-    orbitRadius = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, orbitRadius));
-    updateCamera();
-  }, {passive: false});
-
-  renderer.domElement.addEventListener('mousedown', e => {
-    isDragging = true;
-    prevMouse = {x: e.clientX, y: e.clientY};
-  });
-  renderer.domElement.addEventListener('mousemove', e => {
-    if (!isDragging) return;
-    orbitTheta -= (e.clientX - prevMouse.x) * 0.005;
-    orbitPhi   += (e.clientY - prevMouse.y) * 0.005;
-    orbitPhi = Math.max(0.05, Math.min(Math.PI - 0.05, orbitPhi));
-    prevMouse = {x: e.clientX, y: e.clientY};
-    updateCamera();
-  });
-  renderer.domElement.addEventListener('mouseup',    () => isDragging = false);
-  renderer.domElement.addEventListener('mouseleave', () => isDragging = false);
-  renderer.domElement.addEventListener('touchstart', e => {
-    isDragging = true;
-    prevMouse = {x: e.touches[0].clientX, y: e.touches[0].clientY};
-  }, {passive: true});
-  renderer.domElement.addEventListener('touchmove', e => {
-    if (!isDragging) return;
-    orbitTheta -= (e.touches[0].clientX - prevMouse.x) * 0.005;
-    orbitPhi   += (e.touches[0].clientY - prevMouse.y) * 0.005;
-    orbitPhi = Math.max(0.05, Math.min(Math.PI - 0.05, orbitPhi));
-    prevMouse = {x: e.touches[0].clientX, y: e.touches[0].clientY};
-    updateCamera();
-  }, {passive: true});
-  renderer.domElement.addEventListener('touchend', () => isDragging = false);
 
   const resize = () => {
     const w = container.clientWidth, h = container.clientHeight;
@@ -329,7 +471,6 @@ function initGlobe() {
   }
   animate();
   // #endregion
-
   loadCountries();
   
 }
@@ -463,7 +604,9 @@ function populateTimezoneSelect() {
   const tzDisplay = document.getElementById('tz-display');
   if (tzDisplay) {
     tzDisplay.textContent = formatTimezone(rounded);
-  } else {console.log("HELLO")}
+  } else {
+    // console.log("HELLO")
+  }
 }
 document.getElementById('tz-select').addEventListener('change', function() {
   state.tz = parseFloat(this.value);
@@ -502,18 +645,29 @@ const state = {
   panelArea: 1.7,
   powerMode: 'stc',
   modEff: 0.20,
+  cloudCover: -1,// !!!
 };
 
-
-function bindSlider(id, key, display, fmt, init=true) {
+/**
+ * UPDATES STATE
+ * @param {*} id 
+ * @param {string} key 
+ * @param {*} display 
+ * @param {*} fmt 
+ * @param {*} init 
+ * @returns 
+ */
+function bindSlider(id, key, display, fmt, init=true, step=null) {
   const sl = document.getElementById(id);
   if (!sl) {
-    console.log("[Warn], missing in DOM: ", id);
+    // console.log("[Warn], missing in DOM: ", id);
     return
   }
-  
+  if (step !== null) {
+    sl.step = step;
+  }
+
   const dp = document.getElementById(display);
-  
   const update = () => {
     // Edge case
     if (id === 'panazm-slider' || id === 'slope-slider') {
@@ -522,13 +676,18 @@ function bindSlider(id, key, display, fmt, init=true) {
         autoOpt = false;
       }
     }
-    state[key] = parseFloat(sl.value);
+    // TODO: make a function called "setState" which takes a dict, pass in key + sl.value. Hook it up to all setters of states
+    if (id === 'lat-slider') {
+      setLatLon(parseFloat(sl.value), null);
+    } else if (id === 'lon-slider') {
+      setLatLon(null, parseFloat(sl.value));
+    } else {
+      state[key] = parseFloat(sl.value);
+    }
     if (dp) dp.textContent = fmt(state[key]);
     runAll();
   };
-  
   sl.addEventListener('input', update);
-  
   if (init && state[key] !== undefined) {
     sl.value = state[key];
     if (dp) dp.textContent = fmt(state[key]);
@@ -564,8 +723,8 @@ function initTimeSlider() {
 }
 
 function initSliders() {
-  bindSlider('lat-slider', 'lat', 'lat-display', v => v.toFixed(2) + '°');
-  bindSlider('lon-slider', 'lon', 'lon-display', v => v.toFixed(2) + '°');
+  bindSlider('lat-slider', 'lat', 'lat-display', v => v.toFixed(2) + '°', true, 0.1);
+  bindSlider('lon-slider', 'lon', 'lon-display', v => v.toFixed(2) + '°', true, 0.1);
   bindSlider('elev-slider', 'elev', 'elev-display', v => v.toFixed(0) + ' m');
 
   bindSlider('dt-slider', 'deltaT', 'dt-display', v => v.toFixed(0) + ' s');
@@ -794,18 +953,22 @@ function initPowerModeToggle() {
 /**
  * FML
  */
-function runAll(){
+async function runAll(){
   const dayData=[];
+  const dateStr = makeDateStr(state.year, state.month, state.day);
   for(let h=0;h<24;h++){
     const res=spa(state.year, state.month, state.day, h, 0, 0, state.tz, state.lat, 
               state.lon, state.elev, state.pressure, state.temp,
               state.slope, state.panAzm, state.deltaT, 
               state.deltaUt1, state.atmosRefract);
-    const { power, poa } = computePower(res, null);
+    // TODO: granularity
+    const weather = getWeather(state.lat, state.lon, h, state.tz, dateStr);
+    const { power, poa } = computePower(res, weather);
     // console.log('power hour', h, ':', power, 'poa:', poa);
     dayData.push({
     ...res,
     power,
+    weather
     });
   }
   lastDayData=dayData;
@@ -817,26 +980,7 @@ function runAll(){
   document.getElementById('s-noon').textContent = isPolarDay ? frHrToHms(midRes.suntransit) : isPolarNight ? '—' : frHrToHms(midRes.suntransit)
   updatePill();
   resizeChart();
-  updateObsPosition();
-}
-
-function getObserverFrame(state) {
-
-  const obsPos = latLonToVec3(state.lat, state.lon, 1.0);
-
-  const up = obsPos.clone().normalize();
-
-  const east = new THREE.Vector3(
-    -Math.sin(d2r(state.lon)),
-    0,
-    Math.cos(d2r(state.lon))
-  ).normalize();
-
-  const north = new THREE.Vector3()
-    .crossVectors(up, east)
-    .normalize();
-
-  return { obsPos, up, east, north };
+  updateObsPosition(dateStr);
 }
 
 function updateSP(res) {
@@ -872,9 +1016,68 @@ function updateSPUI(res, power, of) {
   document.getElementById('ov-altitude').textContent=res.altitude.toFixed(2)+'°';
 }
 
-function updateObsPosition() {
+/**
+ * @private
+ * @param {} lat 
+ * @param {*} lon 
+ */
+function setLatLon(lat=null, lon=null) {
+  let _lat, _lon;
+  if (lat === null) {
+    _lat = state.lat;
+  } else {
+    _lat = Math.min(Math.max(lat, -90.0), 90.0);
+  }
+  if (lon === null) {
+    _lon = state.lon;
+  } else {
+    _lon = Math.min(Math.max(lon, -180.0), 180.0);
+  }
+  state.lat = _lat;
+  state.lon = _lon;
+  //console.log("Set lat to: ", state.lat, ".\nSet lon to: ", state.lon);
+}
 
+function updateWeatherUI(state, weatherReady) {
+  const el = document.getElementById('weather-indicator');
+
+  if (!weatherReady) {
+    el.textContent = 'Clear-sky model';
+    el.style.color = 'var(--text2)';
+  } else {
+    el.textContent = `${state.cloudCover ?? 0}% cloud cover`;
+    el.style.color = 'var(--success)';
+  }
+}
+
+/**
+ * Always run
+ */
+function updateObsPosition(dateStr) {
+
+  let cloudCover,dhi,dni,ghi,pressure,temp; // placeholders
   const h = Math.floor(state.hour), m = Math.round((state.hour-h)*60);
+
+  const weather = getWeather(state.lat, state.lon, h, state.tz, dateStr);
+  // ugly code FML
+  if (weather) {
+    temp = weather['temp'];
+    pressure = weather['pressure'];
+    cloudCover = weather['cloudCover']; // int [0,100]
+    if (temp !== null && temp !== undefined) {
+      state.temp = temp;
+    } else {
+      state.temp = 15;
+    }
+    if (pressure !== null && pressure !== undefined) {
+      state.pressure = pressure;
+    } else {
+      state.pressure = 1013;
+    }
+    if (cloudCover !== null && cloudCover >= 0 && cloudCover !== undefined) {
+      state.cloudCover = cloudCover;
+    } // only decorative val
+  } 
   const res = spa(state.year,state.month,state.day,h,m,0,
       state.tz,state.lat,state.lon,state.elev,state.pressure,
       state.temp,state.slope, state.panAzm,
@@ -885,7 +1088,11 @@ function updateObsPosition() {
     state.panAzm = Math.min(Math.max(opt.optAzm, 0), 360);
     syncPanelSliders();
   }
-  const { power, poa, of} = computePower(res, null);
+  
+  // screw yuo guys
+  // updateCloudTexture(h, state.tz);
+
+  const { power, poa, of } = computePower(res, weather);
 
   const pos = latLonToVec3(state.lat, state.lon);
   const up = pos.clone().normalize();
@@ -909,6 +1116,7 @@ function updateObsPosition() {
   updateSP(res);
   updateSPUI(res, power, of);
   drawChart(lastDayData);
+  updateWeatherUI(state, !!weather);
 }
 
 function updateEarthRotation(res) {
@@ -928,12 +1136,15 @@ function initDate() {
   state.year = year;
   state.month = parseInt(month);
   state.day = parseInt(day);
+
+  
   document.getElementById('date-input').addEventListener('change', function(e) {
     const parts = e.target.value.split('-');
     state.date = e.target.value;
     state.year = parseInt(parts[0]);
     state.month = parseInt(parts[1]);
     state.day = parseInt(parts[2]);
+    invalidateWeather();
     runAll();
   });
 }
@@ -980,7 +1191,7 @@ function test() {
     markerWorld.distanceTo(sunWorld)
   );
   const hits = raycaster.intersectObject(globe, true);
-  console.log(hits.length ? "Earth blocks sun" : "Sun visible");
+  // console.log(hits.length ? "Earth blocks sun" : "Sun visible");
 }
 
 function initShittyApp() {
@@ -991,10 +1202,11 @@ function initShittyApp() {
   initPowerModeToggle();
   initSliders();
   populateTimezoneSelect();
-  runAll();
   resizeChart();
   initShittyOptimizer();
-
   initSidebarToggle();
+
+  initWeatherButton(runAll, () => state);
+  runAll();
 }
 initShittyApp();
