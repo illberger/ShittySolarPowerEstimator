@@ -693,35 +693,25 @@
           <label>Elevation (m) <span id="elev-display">20</span></label>
           <input type="range" id="elev-slider" min="0" max="5000" step="10" value="20">
         </div>
-        <div class="field">
-        <label>Timezone</label>
-        <select id="tz-select" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:7px 10px;font-size:13px;font-family:var(--font);outline:none;">
-        </select>
-      </div>
       </div>
     </div>
 
-    <div class="divider"></div>
-
     <div>
-      <div class="section-label">Date &amp; Time</div>
       <div class="field">
-        <label>Date</label>
+        <label>
+          <span>Date</span>
+          <span class="tooltip-trigger">?
+            <span class="tooltip-text">
+              To make the rendering intuitive, the environment auto-detects tz, which is used for all SP-calculations, weather fetches, and displays.
+            </span>
+          </span>
+        </label>
         <input type="date" id="date-input" value="">
       </div>
       <div class="field">
-      <label>
-        <span>ΔT (seconds) <span id="dt-display">69</span></span>
-        <span class="tooltip-trigger">
-          ?
-          <span class="tooltip-text">This parameter accounts for Earth's irregular rotation. Default value (69) is OK for relevant dates. See https://eclipse.gsfc.nasa.gov/SEcat5/deltat.html and https://docs.nlr.gov/docs/fy08osti/34302.pdf</span>
-        </span>
-      </label>
-      <input type="range" id="dt-slider" min="0" max="300" step="1" value="69">
     </div>
     </div>
 
-    <div class="divider"></div>
 
     <div>
       <div class="section-label">Panel Configuration</div>

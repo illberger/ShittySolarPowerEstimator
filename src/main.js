@@ -607,15 +607,15 @@ function populateTimezoneSelect() {
   } else {
     // console.log("HELLO")
   }
+  document.getElementById('tz-select').addEventListener('change', function() {
+    state.tz = parseFloat(this.value);
+    const _tzDisplay = document.getElementById('tz-display');
+    if (_tzDisplay) {
+      _tzDisplay.textContent = formatTimezone(state.tz);
+    }
+    runAll();
+  });
 }
-document.getElementById('tz-select').addEventListener('change', function() {
-  state.tz = parseFloat(this.value);
-  const tzDisplay = document.getElementById('tz-display');
-  if (tzDisplay) {
-    tzDisplay.textContent = formatTimezone(state.tz);
-  }
-  runAll();
-});
 // #endregion
 
 // state
@@ -727,7 +727,7 @@ function initSliders() {
   bindSlider('lon-slider', 'lon', 'lon-display', v => v.toFixed(2) + '°', true, 0.1);
   bindSlider('elev-slider', 'elev', 'elev-display', v => v.toFixed(0) + ' m');
 
-  bindSlider('dt-slider', 'deltaT', 'dt-display', v => v.toFixed(0) + ' s');
+  // bindSlider('dt-slider', 'deltaT', 'dt-display', v => v.toFixed(0) + ' s');
   bindSlider('slope-slider', 'slope', 'slope-display', v => v.toFixed(0) + '°');
   bindSlider('panazm-slider', 'panAzm', 'panazm-display', v => v.toFixed(0) + '°');
   bindSlider('pcount-slider', 'pcount', 'pcount-display', v => v.toFixed(0));
@@ -1201,7 +1201,7 @@ function initShittyApp() {
   initDate();
   initPowerModeToggle();
   initSliders();
-  populateTimezoneSelect();
+  // populateTimezoneSelect();
   resizeChart();
   initShittyOptimizer();
   initSidebarToggle();

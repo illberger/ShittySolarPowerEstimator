@@ -32,7 +32,7 @@ async function fetchWeatherExact(lat, lon, year, month, day) {
 
   const url = `${baseUrl}?latitude=${lat}&longitude=${lon}`
     + `&hourly=direct_normal_irradiance,diffuse_radiation,shortwave_radiation,temperature_2m,surface_pressure,cloud_cover`
-    + `&start_date=${dateStr}&end_date=${dateStr}&timezone=UTC`;
+    + `&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
 
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Open-Meteo ${r.status}`);
@@ -56,8 +56,9 @@ export function getWeather(lat, lon, localHour, utcOffset, dateStr) {
   const key = makeKey(lat, lon, dateStr);
   const hourly = weatherCache.get(key);
   if (!hourly) return null;
-  const utcHour = ((localHour - Math.round(utcOffset)) % 24 + 24) % 24;
-  return hourly[utcHour] ?? null;
+  // const utcHour = ((localHour - Math.round(utcOffset)) % 24 + 24) % 24;
+  // console.log(`[${utcHour}], ${localHour}. length of weatherArray: ${hourly.length}`);
+  return hourly[localHour] ?? null;
 }
 
 /**
